@@ -5,7 +5,8 @@ Provides standardized training loops for:
   1. LSGNN baseline (standard cross-entropy on nodes)
   2. LSGNN-DualTask (combined node + edge loss)
 
-Both use early stopping on validation macro-F1 and cosine LR scheduling.
+Both use early stopping on validation macro-F1, cosine LR scheduling with
+linear warmup, and label smoothing for improved generalization.
 """
 
 import torch
@@ -19,32 +20,42 @@ def compute_class_weights(y, num_classes):
     """
     Compute inverse-frequency class weights for handling class imbalance.
 
-    This is critical for cybersecurity datasets where rare attacks (e.g.,
-    Heartbleed) may have 100x fewer samples than normal traffic.
+    This is critical for cybersecurity datasets where rare attacks
+    may have 100x fewer samples than normal traffic.
     """
     counts = np.bincount(y, minlength=num_classes).astype(float)
-    counts = np.maximum(counts, 1.0)  # avoid division by zero
+    counts = np.maximum(counts, 1.0)
     weights = len(y) / (num_classes * counts)
-    # Clip extreme weights to prevent instability
     weights = np.clip(weights, 0.1, 10.0)
     return torch.tensor(weights, dtype=torch.float32)
 
 
+def get_warmup_cosine_scheduler(optimizer, warmup_epochs, total_epochs):
+    """
+    Cosine annealing with linear warmup.
+
+    Warmup helps GNNs avoid early divergence when the graph message
+    passing hasn't stabilized yet.
+    """
+    def lr_lambda(epoch):
+        if epoch < warmup_epochs:
+            return float(epoch + 1) / float(warmup_epochs)
+        progress = float(epoch - warmup_epochs) / float(max(1, total_epochs - warmup_epochs))
+        return 0.5 * (1.0 + np.cos(np.pi * progress))
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+
 def train_gnn(model, data, epochs: int = 300, lr: float = 1e-3,
               weight_decay: float = 5e-4, patience: int = 30,
-              device: str = "cpu", use_class_weights: bool = True):
+              device: str = "cpu", use_class_weights: bool = True,
+              label_smoothing: float = 0.1, warmup_epochs: int = 10):
     """
     Train a standard GNN model (e.g., LSGNN baseline) with cross-entropy loss.
 
-    Args:
-        model: GNN model with forward(x, edge_index) -> logits
-        data: PyG Data object with x, edge_index, y, train_mask, val_mask
-        epochs: Maximum training epochs
-        lr: Learning rate
-        weight_decay: L2 regularization
-        patience: Early stopping patience
-        device: 'cpu' or 'cuda'
-        use_class_weights: Whether to use inverse-frequency weights
+    Improvements over basic training:
+      - Linear warmup (first `warmup_epochs`) for stable initial convergence
+      - Label smoothing (default 0.1) for better generalization
+      - Gradient clipping at max_norm=1.0
 
     Returns:
         model: Trained model (with best weights loaded)
@@ -58,12 +69,12 @@ def train_gnn(model, data, epochs: int = 300, lr: float = 1e-3,
         weights = compute_class_weights(
             data.y[data.train_mask].cpu().numpy(), data.num_classes
         ).to(device)
-        criterion = nn.CrossEntropyLoss(weight=weights)
+        criterion = nn.CrossEntropyLoss(weight=weights, label_smoothing=label_smoothing)
     else:
-        criterion = nn.CrossEntropyLoss()
+        criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    scheduler = get_warmup_cosine_scheduler(optimizer, warmup_epochs, epochs)
 
     best_val_f1 = 0.0
     best_state = None
@@ -116,7 +127,8 @@ def train_gnn(model, data, epochs: int = 300, lr: float = 1e-3,
 
 def train_gnn_dual(model, data, epochs: int = 300, lr: float = 1e-3,
                    weight_decay: float = 5e-4, patience: int = 30,
-                   device: str = "cpu", use_class_weights: bool = True):
+                   device: str = "cpu", use_class_weights: bool = True,
+                   label_smoothing: float = 0.1, warmup_epochs: int = 10):
     """
     Train the LSGNN-DualTask model with combined node + edge loss.
 
@@ -134,7 +146,7 @@ def train_gnn_dual(model, data, epochs: int = 300, lr: float = 1e-3,
         ).to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    scheduler = get_warmup_cosine_scheduler(optimizer, warmup_epochs, epochs)
 
     best_val_f1 = 0.0
     best_state = None
@@ -149,7 +161,8 @@ def train_gnn_dual(model, data, epochs: int = 300, lr: float = 1e-3,
         total_loss, loss_node, loss_edge = model.compute_dual_loss(
             data.x, data.edge_index, data.y,
             node_mask=data.train_mask,
-            class_weights=class_weights
+            class_weights=class_weights,
+            label_smoothing=label_smoothing
         )
 
         total_loss.backward()

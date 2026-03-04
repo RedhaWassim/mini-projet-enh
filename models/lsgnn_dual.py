@@ -132,7 +132,7 @@ class LSGNNDualTask(nn.Module):
         return self.backbone(x, edge_index)
 
     def compute_dual_loss(self, x, edge_index, y, node_mask=None,
-                          class_weights=None):
+                          class_weights=None, label_smoothing=0.1):
         """
         Compute the combined dual-task loss.
 
@@ -142,6 +142,7 @@ class LSGNNDualTask(nn.Module):
             y: Node labels (N,)
             node_mask: Boolean mask for supervised nodes (train mask)
             class_weights: Optional class weight tensor for CE loss
+            label_smoothing: Label smoothing for cross-entropy
 
         Returns:
             total_loss, loss_node, loss_edge: scalar tensors
@@ -154,12 +155,13 @@ class LSGNNDualTask(nn.Module):
 
         if node_mask is not None:
             if class_weights is not None:
-                ce = nn.CrossEntropyLoss(weight=class_weights)
+                ce = nn.CrossEntropyLoss(weight=class_weights,
+                                         label_smoothing=label_smoothing)
             else:
-                ce = nn.CrossEntropyLoss()
+                ce = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
             loss_node = ce(logits[node_mask], y[node_mask])
         else:
-            loss_node = F.cross_entropy(logits, y)
+            loss_node = F.cross_entropy(logits, y, label_smoothing=label_smoothing)
 
         # Edge consistency loss
         # Sample edges for efficiency
