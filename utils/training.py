@@ -47,7 +47,7 @@ def get_warmup_cosine_scheduler(optimizer, warmup_epochs, total_epochs):
 
 def train_gnn(model, data, epochs: int = 300, lr: float = 1e-3,
               weight_decay: float = 5e-4, patience: int = 30,
-              device: str = "cpu", use_class_weights: bool = True,
+              device: str = None, use_class_weights: bool = True,
               label_smoothing: float = 0.1, warmup_epochs: int = 10):
     """
     Train a standard GNN model (e.g., LSGNN baseline) with cross-entropy loss.
@@ -61,8 +61,17 @@ def train_gnn(model, data, epochs: int = 300, lr: float = 1e-3,
         model: Trained model (with best weights loaded)
         history: dict with training curves
     """
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"\n{'='*60}")
+    print(f"  [TRAIN_GNN] Starting training on device: {device.upper()}")
+    print(f"  [TRAIN_GNN] Epochs: {epochs} | LR: {lr} | Weight Decay: {weight_decay}")
+    print(f"  [TRAIN_GNN] Patience: {patience} | Warmup: {warmup_epochs} epochs")
+    print(f"  [TRAIN_GNN] Label Smoothing: {label_smoothing}")
+    print(f"{'='*60}")
     model = model.to(device)
     data = data.to(device)
+    print(f"  [TRAIN_GNN] Model and data moved to {device.upper()}")
 
     # Class weights for imbalanced data
     if use_class_weights:
@@ -81,16 +90,24 @@ def train_gnn(model, data, epochs: int = 300, lr: float = 1e-3,
     wait = 0
     history = {"train_loss": [], "val_f1": [], "val_acc": []}
 
+    print(f"  [TRAIN_GNN] Training started...\n")
     for epoch in range(epochs):
         # Training step
         model.train()
         optimizer.zero_grad()
         logits = model(data.x, data.edge_index)
         loss = criterion(logits[data.train_mask], data.y[data.train_mask])
+
+        # Compute train accuracy
+        with torch.no_grad():
+            train_pred = logits[data.train_mask].argmax(dim=1)
+            train_acc = (train_pred == data.y[data.train_mask]).float().mean().item()
+
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         scheduler.step()
+        current_lr = optimizer.param_groups[0]['lr']
 
         # Validation
         model.eval()
@@ -105,29 +122,38 @@ def train_gnn(model, data, epochs: int = 300, lr: float = 1e-3,
         history["val_f1"].append(val_f1)
         history["val_acc"].append(val_acc)
 
+        # Status marker
         if val_f1 > best_val_f1:
             best_val_f1 = val_f1
             best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             wait = 0
+            marker = "★ BEST"
         else:
             wait += 1
-            if wait >= patience:
-                print(f"  Early stopping at epoch {epoch + 1}, best val F1: {best_val_f1:.4f}")
-                break
+            marker = f"  wait={wait}/{patience}"
 
-        if (epoch + 1) % 50 == 0:
-            print(f"  Epoch {epoch + 1}: loss={loss.item():.4f}, "
-                  f"val_F1={val_f1:.4f}, val_acc={val_acc:.4f}")
+        print(f"  [GNN] Epoch {epoch+1:>4d}/{epochs} | "
+              f"loss={loss.item():.4f} | train_acc={train_acc:.4f} | "
+              f"val_F1={val_f1:.4f} | val_acc={val_acc:.4f} | "
+              f"lr={current_lr:.6f} | grad={grad_norm:.4f} | {marker}")
+
+        if wait >= patience:
+            print(f"\n  [GNN] ⏹ Early stopping at epoch {epoch + 1} (no improvement for {patience} epochs)")
+            print(f"  [GNN] Best val F1: {best_val_f1:.4f}")
+            break
 
     if best_state is not None:
         model.load_state_dict(best_state)
+        print(f"\n  [TRAIN_GNN] ✓ Loaded best model weights (val_F1={best_val_f1:.4f})")
     model = model.to(device)
+    print(f"  [TRAIN_GNN] Training complete. Final best val_F1: {best_val_f1:.4f}")
+    print(f"{'='*60}\n")
     return model, history
 
 
 def train_gnn_dual(model, data, epochs: int = 300, lr: float = 1e-3,
                    weight_decay: float = 5e-4, patience: int = 30,
-                   device: str = "cpu", use_class_weights: bool = True,
+                   device: str = None, use_class_weights: bool = True,
                    label_smoothing: float = 0.1, warmup_epochs: int = 10):
     """
     Train the LSGNN-DualTask model with combined node + edge loss.
@@ -135,8 +161,17 @@ def train_gnn_dual(model, data, epochs: int = 300, lr: float = 1e-3,
     Same training loop structure as train_gnn, but uses the dual-task
     loss from LSGNNDualTask.compute_dual_loss().
     """
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"\n{'='*60}")
+    print(f"  [TRAIN_DUAL] Starting DualTask training on device: {device.upper()}")
+    print(f"  [TRAIN_DUAL] Epochs: {epochs} | LR: {lr} | Weight Decay: {weight_decay}")
+    print(f"  [TRAIN_DUAL] Patience: {patience} | Warmup: {warmup_epochs} epochs")
+    print(f"  [TRAIN_DUAL] Label Smoothing: {label_smoothing}")
+    print(f"{'='*60}")
     model = model.to(device)
     data = data.to(device)
+    print(f"  [TRAIN_DUAL] Model and data moved to {device.upper()}")
 
     # Class weights
     class_weights = None
@@ -154,6 +189,7 @@ def train_gnn_dual(model, data, epochs: int = 300, lr: float = 1e-3,
     history = {"train_loss": [], "node_loss": [], "edge_loss": [],
                "val_f1": [], "val_acc": []}
 
+    print(f"  [TRAIN_DUAL] Training started...\n")
     for epoch in range(epochs):
         model.train()
         optimizer.zero_grad()
@@ -165,10 +201,17 @@ def train_gnn_dual(model, data, epochs: int = 300, lr: float = 1e-3,
             label_smoothing=label_smoothing
         )
 
+        # Compute train accuracy
+        with torch.no_grad():
+            train_logits = model(data.x, data.edge_index)
+            train_pred = train_logits[data.train_mask].argmax(dim=1)
+            train_acc = (train_pred == data.y[data.train_mask]).float().mean().item()
+
         total_loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         scheduler.step()
+        current_lr = optimizer.param_groups[0]['lr']
 
         # Validation
         model.eval()
@@ -185,22 +228,30 @@ def train_gnn_dual(model, data, epochs: int = 300, lr: float = 1e-3,
         history["val_f1"].append(val_f1)
         history["val_acc"].append(val_acc)
 
+        # Status marker
         if val_f1 > best_val_f1:
             best_val_f1 = val_f1
             best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             wait = 0
+            marker = "★ BEST"
         else:
             wait += 1
-            if wait >= patience:
-                print(f"  Early stopping at epoch {epoch + 1}, best val F1: {best_val_f1:.4f}")
-                break
+            marker = f"  wait={wait}/{patience}"
 
-        if (epoch + 1) % 50 == 0:
-            print(f"  Epoch {epoch + 1}: total_loss={total_loss.item():.4f} "
-                  f"(node={loss_node.item():.4f}, edge={loss_edge.item():.4f}), "
-                  f"val_F1={val_f1:.4f}")
+        print(f"  [DUAL] Epoch {epoch+1:>4d}/{epochs} | "
+              f"total={total_loss.item():.4f} (node={loss_node.item():.4f}, edge={loss_edge.item():.4f}) | "
+              f"train_acc={train_acc:.4f} | val_F1={val_f1:.4f} | val_acc={val_acc:.4f} | "
+              f"lr={current_lr:.6f} | grad={grad_norm:.4f} | {marker}")
+
+        if wait >= patience:
+            print(f"\n  [DUAL] ⏹ Early stopping at epoch {epoch + 1} (no improvement for {patience} epochs)")
+            print(f"  [DUAL] Best val F1: {best_val_f1:.4f}")
+            break
 
     if best_state is not None:
         model.load_state_dict(best_state)
+        print(f"\n  [TRAIN_DUAL] ✓ Loaded best model weights (val_F1={best_val_f1:.4f})")
     model = model.to(device)
+    print(f"  [TRAIN_DUAL] Training complete. Final best val_F1: {best_val_f1:.4f}")
+    print(f"{'='*60}\n")
     return model, history
