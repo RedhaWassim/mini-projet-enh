@@ -395,8 +395,8 @@ def main():
     )
 
     # Data arguments
-    parser.add_argument("--data_path", type=str, default="data/excel_labeling_complet.csv",
-                        help="Path to CSV dataset (default: data/excel_labeling_complet.csv)")
+    parser.add_argument("--data_path", type=str, default="data/enriched_dataset.csv",
+                        help="Path to CSV dataset (default: data/enriched_dataset.csv)")
     parser.add_argument("--label_col", type=str, default=None,
                         help="Name of the label column (auto-detected if not given)")
 
