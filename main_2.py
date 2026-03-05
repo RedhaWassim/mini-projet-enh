@@ -1,19 +1,19 @@
 """
-Main Experiment Runner: GNN-Based Cybersecurity Intrusion Detection Pipeline.
+Main Experiment Runner for TON-IoT Dataset.
 
-This script orchestrates the complete experimental pipeline:
-  1. Load and analyze the cybersecurity dataset
-  2. Preprocess features, apply SMOTE augmentation, construct the graph
-  3. Train baseline models (RandomForest, MLP)
-  4. Train LSGNN baseline GNN
-  5. Train LSGNN-DualTask (novel modification)
-  6. Compare all models with comprehensive metrics
-  7. Run ablation study on lambda (edge loss weight)
+Runs the same pipeline as main.py but on the TON-IoT network dataset:
+  1. Load and analyze the TON-IoT dataset
+  2. Preprocess features (encode categoricals, scale numerics, SMOTE)
+  3. Construct the k-NN graph
+  4. Train baseline models (RandomForest, MLP)
+  5. Train LSGNN baseline
+  6. Train LSGNN-DualTask
+  7. Compare all models
+  8. Generate reports to results_2/
 
 Usage:
-    python main.py                                              # Default dataset
-    python main.py --data_path path/to/dataset.csv              # Custom dataset
-    python main.py --run_ablation --multi_seed                  # Full evaluation
+    python main_2.py
+    python main_2.py --epochs 20 --patience 10
 """
 
 import argparse
@@ -22,9 +22,9 @@ import torch
 import warnings
 warnings.filterwarnings("ignore")
 
-from data.loader import (
-    load_dataset, detect_label_column, analyze_dataset,
-    preprocess_features, create_splits, augment_training_data
+from ton_iot_models.preprocessing import (
+    load_toniot, analyze_toniot, preprocess_toniot,
+    create_splits, augment_training_data
 )
 from data.graph_construction import build_graph_data
 from models.baselines import MLPClassifier, train_mlp, train_random_forest
@@ -47,37 +47,8 @@ def set_seed(seed: int = 42):
     torch.backends.cudnn.benchmark = False
 
 
-def detect_ip_port_columns(df):
-    """Auto-detect IP and port column names from the DataFrame."""
-    cols = [c.lower() for c in df.columns]
-    col_map = dict(zip(cols, df.columns))
-
-    ip_src = ip_dst = port_col = None
-
-    for key in ["src_ip", "source ip", "srcip", "src ip", "ip.src", "ip_src"]:
-        if key in cols:
-            ip_src = col_map[key]
-            break
-    for key in ["dst_ip", "destination ip", "dstip", "dst ip", "ip.dst", "ip_dst"]:
-        if key in cols:
-            ip_dst = col_map[key]
-            break
-    for key in ["dst_port", "destination port", "dstport", "dst port", "port", "dport"]:
-        if key in cols:
-            port_col = col_map[key]
-            break
-
-    return ip_src, ip_dst, port_col
-
-
 def evaluate_gnn(model, data, device, class_names):
-    """
-    Evaluate a GNN model on the test set.
-
-    IMPORTANT: Uses data.y[data.test_mask] for ground truth labels to ensure
-    alignment with logits[data.test_mask]. This avoids the index-ordering
-    mismatch that occurs when using y[test_idx] (which may be unsorted).
-    """
+    """Evaluate a GNN model on the test set."""
     model.eval()
     data_d = data.to(device)
     with torch.no_grad():
@@ -90,13 +61,18 @@ def evaluate_gnn(model, data, device, class_names):
 
 
 def run_experiment(args):
-    """Run the complete experiment pipeline."""
+    """Run the complete TON-IoT experiment pipeline."""
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"\n{'#'*70}")
+    print(f"  TON-IoT INTRUSION DETECTION EXPERIMENT")
+    print(f"{'#'*70}")
     print(f"\n[CONFIG] Device: {device}")
     print(f"[CONFIG] Seed: {args.seed}")
     print(f"[CONFIG] Hidden dim: {args.hidden_dim}, Layers: {args.num_layers}")
     print(f"[CONFIG] k-NN k: {args.k}, Lambda edge: {args.lambda_edge}")
+    print(f"[CONFIG] Epochs: {args.epochs}, Patience: {args.patience}")
+    print(f"[CONFIG] Max samples: {args.max_samples}")
 
     # ══════════════════════════════════════════════════════════════════
     # STEP 1: Load and Analyze Dataset
@@ -106,15 +82,20 @@ def run_experiment(args):
     print("=" * 70)
 
     set_seed(args.seed)
-    df = load_dataset(args.data_path)
+    df = load_toniot(args.data_path)
 
-    if args.label_col:
-        label_col = args.label_col
-    else:
-        label_col = detect_label_column(df)
-    print(f"[INFO] Using label column: '{label_col}'")
+    # Subsample if dataset is too large for k-NN graph construction
+    if args.max_samples and len(df) > args.max_samples:
+        print(f"\n[INFO] Subsampling {args.max_samples:,} from {len(df):,} samples (stratified by 'type')...")
+        from sklearn.model_selection import train_test_split
+        keep_ratio = args.max_samples / len(df)
+        _, df = train_test_split(
+            df, test_size=keep_ratio, stratify=df["type"], random_state=args.seed
+        )
+        df = df.reset_index(drop=True)
+        print(f"[INFO] Subsampled to {len(df):,} samples")
 
-    analysis = analyze_dataset(df, label_col)
+    analyze_toniot(df)
 
     # ══════════════════════════════════════════════════════════════════
     # STEP 2: Feature Preprocessing & Augmentation
@@ -123,7 +104,7 @@ def run_experiment(args):
     print("  STEP 2: FEATURE PREPROCESSING & AUGMENTATION")
     print("=" * 70)
 
-    X, y, label_encoder, feature_names = preprocess_features(df, label_col)
+    X, y, label_encoder, feature_names = preprocess_toniot(df, label_col="type")
     class_names = list(label_encoder.classes_)
     num_classes = len(class_names)
 
@@ -140,8 +121,11 @@ def run_experiment(args):
     print("  STEP 3: GRAPH CONSTRUCTION")
     print("=" * 70)
 
-    ip_src, ip_dst, port_col = detect_ip_port_columns(df)
-    print(f"[INFO] Detected columns -> src_ip: {ip_src}, dst_ip: {ip_dst}, port: {port_col}")
+    # TON-IoT has src_ip, dst_ip, dst_port columns
+    ip_src = "src_ip" if "src_ip" in df.columns else None
+    ip_dst = "dst_ip" if "dst_ip" in df.columns else None
+    port_col = "dst_port" if "dst_port" in df.columns else None
+    print(f"[INFO] Using columns -> src_ip: {ip_src}, dst_ip: {ip_dst}, port: {port_col}")
 
     data = build_graph_data(
         X, y, train_idx, val_idx, test_idx,
@@ -159,7 +143,7 @@ def run_experiment(args):
     all_results = {}
     all_histories = {}
 
-    # --- Random Forest (trained on SMOTE-augmented data) ---
+    # --- Random Forest ---
     print("\n--- Training Random Forest (with SMOTE augmentation) ---")
     rf = train_random_forest(X_train_aug, y_train_aug, seed=args.seed)
     rf_pred = rf.predict(X[test_idx])
@@ -168,7 +152,7 @@ def run_experiment(args):
     print_metrics(rf_results, "Random Forest (Tabular Baseline + SMOTE)")
     all_results["RandomForest"] = rf_results
 
-    # --- MLP (trained on SMOTE-augmented data) ---
+    # --- MLP ---
     print("\n--- Training MLP (with SMOTE augmentation) ---")
     class_weights_mlp = compute_class_weights(y_train_aug, num_classes)
     mlp = MLPClassifier(X.shape[1], args.hidden_dim, num_classes,
@@ -211,7 +195,6 @@ def run_experiment(args):
         device=device
     )
 
-    # Evaluate LSGNN — use evaluate_gnn to avoid label-index misalignment
     lsgnn_results = evaluate_gnn(lsgnn, data, device, class_names)
     print_metrics(lsgnn_results, "LSGNN (Baseline GNN)")
     all_results["LSGNN"] = lsgnn_results
@@ -243,7 +226,6 @@ def run_experiment(args):
         device=device
     )
 
-    # Evaluate LSGNN-DualTask
     dual_results = evaluate_gnn(lsgnn_dual, data, device, class_names)
     print_metrics(dual_results, "LSGNN-DualTask (Modified GNN)")
     all_results["LSGNN-DualTask"] = dual_results
@@ -258,111 +240,15 @@ def run_experiment(args):
 
     compare_models(all_results)
 
-    # Per-class improvement analysis
     analyze_attack_improvements(
         rf_results, lsgnn_results, dual_results, class_names
     )
 
     # ══════════════════════════════════════════════════════════════════
-    # STEP 8: Ablation Study on lambda (Edge Loss Weight)
-    # ══════════════════════════════════════════════════════════════════
-    ablation_results = {}
-    seed_results = {}
-
-    if args.run_ablation:
-        print("\n" + "=" * 70)
-        print("  STEP 8: ABLATION STUDY (lambda SENSITIVITY)")
-        print("=" * 70)
-
-        lambda_values = [0.0, 0.1, 0.3, 0.5, 0.7, 1.0]
-        ablation_results = {}
-
-        for lam in lambda_values:
-            print(f"\n  --- lambda = {lam} ---")
-            set_seed(args.seed)
-
-            model_abl = LSGNNDualTask(
-                input_dim=X.shape[1],
-                hidden_dim=args.hidden_dim,
-                num_classes=num_classes,
-                num_layers=args.num_layers,
-                dropout=args.dropout,
-                lambda_edge=lam,
-                edge_sample_ratio=0.5
-            )
-
-            model_abl, _ = train_gnn_dual(
-                model_abl, data, epochs=args.epochs, lr=args.lr,
-                weight_decay=args.weight_decay, patience=args.patience,
-                device=device
-            )
-
-            abl_metrics = evaluate_gnn(model_abl, data, device, class_names)
-            ablation_results[f"lambda={lam}"] = abl_metrics
-
-        # Print ablation summary
-        print(f"\n{'=' * 60}")
-        print(f"  ABLATION: Effect of lambda on Test Performance")
-        print(f"{'=' * 60}")
-        print(f"\n  {'lambda':>8s} {'Accuracy':>12s} {'Macro-F1':>12s} {'Weighted-F1':>12s}")
-        print(f"  {'-' * 44}")
-        for name, res in ablation_results.items():
-            lam_val = name.split("=")[1]
-            print(f"  {lam_val:>8s} {res['accuracy']:12.4f} "
-                  f"{res['macro_f1']:12.4f} {res['weighted_f1']:12.4f}")
-
-        print(f"\n  Note: lambda=0 is equivalent to LSGNN baseline (edge loss disabled).")
-        print(f"  The optimal lambda balances node classification with edge consistency.")
-        print(f"{'=' * 60}")
-
-    # ══════════════════════════════════════════════════════════════════
-    # MULTI-SEED EVALUATION (optional)
-    # ══════════════════════════════════════════════════════════════════
-    if args.multi_seed:
-        print("\n" + "=" * 70)
-        print("  MULTI-SEED EVALUATION (Robustness Check)")
-        print("=" * 70)
-
-        seeds = [42, 123, 456, 789, 1024]
-        seed_results = {"LSGNN": [], "LSGNN-DualTask": []}
-
-        for s in seeds:
-            print(f"\n  --- Seed {s} ---")
-
-            # LSGNN
-            set_seed(s)
-            m1 = LSGNN(X.shape[1], args.hidden_dim, num_classes,
-                       args.num_layers, args.dropout)
-            m1, _ = train_gnn(m1, data, epochs=args.epochs, lr=args.lr,
-                              weight_decay=args.weight_decay,
-                              patience=args.patience, device=device)
-            r1 = evaluate_gnn(m1, data, device, class_names)
-            seed_results["LSGNN"].append(r1["macro_f1"])
-
-            # LSGNN-DualTask
-            set_seed(s)
-            m2 = LSGNNDualTask(X.shape[1], args.hidden_dim, num_classes,
-                               args.num_layers, args.dropout,
-                               lambda_edge=args.lambda_edge)
-            m2, _ = train_gnn_dual(m2, data, epochs=args.epochs, lr=args.lr,
-                                   weight_decay=args.weight_decay,
-                                   patience=args.patience, device=device)
-            r2 = evaluate_gnn(m2, data, device, class_names)
-            seed_results["LSGNN-DualTask"].append(r2["macro_f1"])
-
-        print(f"\n{'=' * 50}")
-        print(f"  Multi-Seed Results (Macro-F1)")
-        print(f"{'=' * 50}")
-        for model_name, scores in seed_results.items():
-            mean_f1 = np.mean(scores)
-            std_f1 = np.std(scores)
-            print(f"  {model_name:25s}: {mean_f1:.4f} +/- {std_f1:.4f}")
-        print(f"{'=' * 50}")
-
-    # ══════════════════════════════════════════════════════════════════
-    # STEP 9: Generate Reports
+    # STEP 8: Generate Reports
     # ══════════════════════════════════════════════════════════════════
     config = {
+        "dataset": "TON-IoT Network",
         "data_path": args.data_path,
         "seed": args.seed,
         "hidden_dim": args.hidden_dim,
@@ -379,32 +265,29 @@ def run_experiment(args):
     generate_full_report(
         all_results=all_results,
         histories=all_histories,
-        ablation_results=ablation_results if args.run_ablation else None,
-        multi_seed_results=seed_results if args.multi_seed else None,
         config=config,
         output_dir=args.output_dir,
     )
 
-    print("\n[DONE] Experiment complete.")
+    print("\n[DONE] TON-IoT experiment complete.")
     return all_results
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="GNN-Based Cybersecurity Intrusion Detection Pipeline"
+        description="GNN-Based Intrusion Detection on TON-IoT Dataset"
     )
 
     # Data arguments
-    parser.add_argument("--data_path", type=str, default="data/enriched_dataset.csv",
-                        help="Path to CSV dataset (default: data/enriched_dataset.csv)")
-    parser.add_argument("--label_col", type=str, default=None,
-                        help="Name of the label column (auto-detected if not given)")
+    parser.add_argument("--data_path", type=str,
+                        default="ton_iot_dataset/train_test_network.csv",
+                        help="Path to TON-IoT CSV dataset")
 
     # Model hyperparameters
     parser.add_argument("--hidden_dim", type=int, default=128,
                         help="Hidden dimensionality for all models")
     parser.add_argument("--num_layers", type=int, default=2,
-                        help="Number of GNN layers (default: 2 to avoid oversmoothing)")
+                        help="Number of GNN layers")
     parser.add_argument("--dropout", type=float, default=0.3,
                         help="Dropout probability")
 
@@ -429,12 +312,10 @@ def main():
     # Experiment options
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed")
-    parser.add_argument("--run_ablation", action="store_true",
-                        help="Run ablation study on lambda")
-    parser.add_argument("--multi_seed", action="store_true",
-                        help="Run multi-seed evaluation for robustness")
-    parser.add_argument("--output_dir", type=str, default="results",
-                        help="Directory to save all reports and plots (default: results)")
+    parser.add_argument("--output_dir", type=str, default="results_2",
+                        help="Directory to save all reports and plots")
+    parser.add_argument("--max_samples", type=int, default=50000,
+                        help="Max samples to use (stratified subsample). Set to 0 to use all.")
 
     args = parser.parse_args()
     run_experiment(args)

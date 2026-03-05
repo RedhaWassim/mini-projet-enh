@@ -48,18 +48,26 @@ class MLPClassifier(nn.Module):
 
 def train_mlp(model, X_train, y_train, X_val, y_val,
               epochs: int = 200, lr: float = 1e-3, weight_decay: float = 1e-4,
-              patience: int = 20, device: str = "cpu", class_weights=None):
+              patience: int = 20, device: str = None, class_weights=None):
     """
     Train the MLP classifier with early stopping on validation F1.
 
     Returns:
         best_state_dict, training_history
     """
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"\n{'='*60}")
+    print(f"  [TRAIN_MLP] Starting MLP training on device: {device.upper()}")
+    print(f"  [TRAIN_MLP] Epochs: {epochs} | LR: {lr} | Weight Decay: {weight_decay}")
+    print(f"  [TRAIN_MLP] Patience: {patience}")
+    print(f"{'='*60}")
     model = model.to(device)
     X_train_t = torch.tensor(X_train, dtype=torch.float32).to(device)
     y_train_t = torch.tensor(y_train, dtype=torch.long).to(device)
     X_val_t = torch.tensor(X_val, dtype=torch.float32).to(device)
     y_val_t = torch.tensor(y_val, dtype=torch.long).to(device)
+    print(f"  [TRAIN_MLP] Model and data moved to {device.upper()}")
 
     if class_weights is not None:
         weight_tensor = torch.tensor(class_weights, dtype=torch.float32).to(device)
@@ -75,14 +83,22 @@ def train_mlp(model, X_train, y_train, X_val, y_val,
     wait = 0
     history = {"train_loss": [], "val_f1": []}
 
+    print(f"  [TRAIN_MLP] Training started...\n")
     for epoch in range(epochs):
         model.train()
         optimizer.zero_grad()
         out = model(X_train_t)
         loss = criterion(out, y_train_t)
+
+        # Train accuracy
+        with torch.no_grad():
+            train_pred = out.argmax(dim=1).cpu().numpy()
+            train_acc = (train_pred == y_train).mean()
+
         loss.backward()
         optimizer.step()
         scheduler.step()
+        current_lr = optimizer.param_groups[0]['lr']
 
         # Validation
         model.eval()
@@ -94,21 +110,30 @@ def train_mlp(model, X_train, y_train, X_val, y_val,
         history["train_loss"].append(loss.item())
         history["val_f1"].append(val_f1)
 
+        # Status marker
         if val_f1 > best_val_f1:
             best_val_f1 = val_f1
             best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             wait = 0
+            marker = "★ BEST"
         else:
             wait += 1
-            if wait >= patience:
-                print(f"  MLP early stopping at epoch {epoch + 1}, best val F1: {best_val_f1:.4f}")
-                break
+            marker = f"  wait={wait}/{patience}"
 
-        if (epoch + 1) % 50 == 0:
-            print(f"  Epoch {epoch + 1}: loss={loss.item():.4f}, val_F1={val_f1:.4f}")
+        print(f"  [MLP] Epoch {epoch+1:>4d}/{epochs} | "
+              f"loss={loss.item():.4f} | train_acc={train_acc:.4f} | "
+              f"val_F1={val_f1:.4f} | lr={current_lr:.6f} | {marker}")
+
+        if wait >= patience:
+            print(f"\n  [MLP] ⏹ Early stopping at epoch {epoch + 1} (no improvement for {patience} epochs)")
+            print(f"  [MLP] Best val F1: {best_val_f1:.4f}")
+            break
 
     if best_state is not None:
         model.load_state_dict(best_state)
+        print(f"\n  [TRAIN_MLP] ✓ Loaded best model weights (val_F1={best_val_f1:.4f})")
+    print(f"  [TRAIN_MLP] Training complete. Final best val_F1: {best_val_f1:.4f}")
+    print(f"{'='*60}\n")
     return model, history
 
 
@@ -125,6 +150,7 @@ def train_random_forest(X_train, y_train, n_estimators: int = 200, seed: int = 4
     - Robustness to outliers and noisy features
     - Built-in feature importance ranking
     """
+    print(f"\n  [TRAIN_RF] Training RandomForest with {n_estimators} estimators...")
     clf = RandomForestClassifier(
         n_estimators=n_estimators,
         max_depth=None,
@@ -134,4 +160,5 @@ def train_random_forest(X_train, y_train, n_estimators: int = 200, seed: int = 4
         n_jobs=-1
     )
     clf.fit(X_train, y_train)
+    print(f"  [TRAIN_RF] ✓ RandomForest training complete ({n_estimators} trees)")
     return clf

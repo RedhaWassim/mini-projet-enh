@@ -1,0 +1,138 @@
+=== COLUMNS ===
+   0: src_ip (dtype=object)
+   1: src_port (dtype=int64)
+   2: dst_ip (dtype=object)
+   3: dst_port (dtype=int64)
+   4: proto (dtype=object)
+   5: service (dtype=object)
+   6: duration (dtype=float64)
+   7: src_bytes (dtype=int64)
+   8: dst_bytes (dtype=int64)
+   9: conn_state (dtype=object)
+  10: missed_bytes (dtype=int64)
+  11: src_pkts (dtype=int64)
+  12: src_ip_bytes (dtype=int64)
+  13: dst_pkts (dtype=int64)
+  14: dst_ip_bytes (dtype=int64)
+  15: dns_query (dtype=object)
+  16: dns_qclass (dtype=int64)
+  17: dns_qtype (dtype=int64)
+  18: dns_rcode (dtype=int64)
+  19: dns_AA (dtype=object)
+  20: dns_RD (dtype=object)
+  21: dns_RA (dtype=object)
+  22: dns_rejected (dtype=object)
+  23: ssl_version (dtype=object)
+  24: ssl_cipher (dtype=object)
+  25: ssl_resumed (dtype=object)
+  26: ssl_established (dtype=object)
+  27: ssl_subject (dtype=object)
+  28: ssl_issuer (dtype=object)
+  29: http_trans_depth (dtype=object)
+  30: http_method (dtype=object)
+  31: http_uri (dtype=object)
+  32: http_version (dtype=object)
+  33: http_request_body_len (dtype=int64)
+  34: http_response_body_len (dtype=int64)
+  35: http_status_code (dtype=int64)
+  36: http_user_agent (dtype=object)
+  37: http_orig_mime_types (dtype=object)
+  38: http_resp_mime_types (dtype=object)
+  39: weird_name (dtype=object)
+  40: weird_addl (dtype=object)
+  41: weird_notice (dtype=object)
+  42: label (dtype=int64)
+  43: type (dtype=object)
+
+Shape: (211043, 44)
+
+=== TYPE (attack category) ===
+type
+normal        50000
+backdoor      20000
+ddos          20000
+dos           20000
+injection     20000
+password      20000
+ransomware    20000
+scanning      20000
+xss           20000
+mitm           1043
+
+=== LABEL (binary) ===
+label
+1    161043
+0     50000
+
+=== SAMPLE VALUES (first 2 rows) ===
+  src_ip: 192.168.1.37 | 192.168.1.193
+  src_port: 4444 | 49180
+  dst_ip: 192.168.1.193 | 192.168.1.37
+  dst_port: 49178 | 8080
+  proto: tcp | tcp
+  service: - | -
+  duration: 290.371539 | 0.000102
+  src_bytes: 101568 | 0
+  dst_bytes: 2592 | 0
+  conn_state: OTH | REJ
+  missed_bytes: 0 | 0
+  src_pkts: 108 | 1
+  src_ip_bytes: 108064 | 52
+  dst_pkts: 31 | 1
+  dst_ip_bytes: 3832 | 40
+  dns_query: - | -
+  dns_qclass: 0 | 0
+  dns_qtype: 0 | 0
+  dns_rcode: 0 | 0
+  dns_AA: - | -
+  dns_RD: - | -
+  dns_RA: - | -
+  dns_rejected: - | -
+  ssl_version: - | -
+  ssl_cipher: - | -
+  ssl_resumed: - | -
+  ssl_established: - | -
+  ssl_subject: - | -
+  ssl_issuer: - | -
+  http_trans_depth: - | -
+  http_method: - | -
+  http_uri: - | -
+  http_version: - | -
+  http_request_body_len: 0 | 0
+  http_response_body_len: 0 | 0
+  http_status_code: 0 | 0
+  http_user_agent: - | -
+  http_orig_mime_types: - | -
+  http_resp_mime_types: - | -
+  weird_name: - | -
+  weird_addl: - | -
+  weird_notice: - | -
+  label: 1 | 1
+  type: backdoor | backdoor
+
+=== NULLS ===
+No nulls
+
+=== DASH PLACEHOLDERS ===
+service                 132032
+dns_query               176198
+dns_AA                  176030
+dns_RD                  176030
+dns_RA                  176030
+dns_rejected            176030
+ssl_version             210642
+ssl_cipher              210642
+ssl_resumed             210642
+ssl_established         210642
+ssl_subject             211032
+ssl_issuer              211032
+http_trans_depth        210740
+http_method             210756
+http_uri                210756
+http_version            210745
+http_user_agent         210756
+http_orig_mime_types    211027
+http_resp_mime_types    210839
+weird_name              210687
+weird_addl              210886
+weird_notice            210687
