@@ -92,11 +92,22 @@ def evaluate_gnn(model, data, device, class_names):
 def run_experiment(args):
     """Run the complete experiment pipeline."""
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if args.gpu:
+        if not torch.cuda.is_available():
+            print("[ERROR] --gpu flag set but CUDA is not available!")
+            print("[ERROR] Install PyTorch with CUDA support or remove --gpu flag.")
+            return
+        device = "cuda"
+    else:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"\n[CONFIG] Device: {device}")
+    if device == "cuda":
+        print(f"[CONFIG] GPU: {torch.cuda.get_device_name(0)}")
+        print(f"[CONFIG] GPU Memory: {torch.cuda.get_device_properties(0).total_mem / 1e9:.1f} GB")
     print(f"[CONFIG] Seed: {args.seed}")
     print(f"[CONFIG] Hidden dim: {args.hidden_dim}, Layers: {args.num_layers}")
     print(f"[CONFIG] k-NN k: {args.k}, Lambda edge: {args.lambda_edge}")
+    print(f"[CONFIG] Epochs: {args.epochs}, Patience: {args.patience}")
 
     # ══════════════════════════════════════════════════════════════════
     # STEP 1: Load and Analyze Dataset
@@ -413,13 +424,13 @@ def main():
                         help="k for k-NN graph construction")
 
     # Training
-    parser.add_argument("--epochs", type=int, default=10,
+    parser.add_argument("--epochs", type=int, default=300,
                         help="Maximum training epochs")
     parser.add_argument("--lr", type=float, default=1e-3,
                         help="Learning rate")
     parser.add_argument("--weight_decay", type=float, default=5e-4,
                         help="Weight decay (L2 regularization)")
-    parser.add_argument("--patience", type=int, default=4,
+    parser.add_argument("--patience", type=int, default=30,
                         help="Early stopping patience")
 
     # Dual-task modification
@@ -435,6 +446,8 @@ def main():
                         help="Run multi-seed evaluation for robustness")
     parser.add_argument("--output_dir", type=str, default="results",
                         help="Directory to save all reports and plots (default: results)")
+    parser.add_argument("--gpu", action="store_true",
+                        help="Force GPU usage (exits with error if CUDA is not available)")
 
     args = parser.parse_args()
     run_experiment(args)
