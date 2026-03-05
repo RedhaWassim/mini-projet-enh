@@ -64,7 +64,7 @@ def save_json_report(all_results: dict, output_dir: str, config: dict = None):
         report["models"][model_name] = entry
 
     path = os.path.join(output_dir, "results.json")
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, default=str)
     print(f"  [SAVED] {path}")
     return path
@@ -334,7 +334,7 @@ def save_text_report(all_results: dict, output_dir: str, config: dict = None):
 
     text = "\n".join(lines)
     path = os.path.join(output_dir, "report.txt")
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(text)
     print(f"  [SAVED] {path}")
     return path
