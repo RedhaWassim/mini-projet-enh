@@ -34,6 +34,7 @@ from utils.training import train_gnn, train_gnn_dual, compute_class_weights
 from utils.evaluation import (
     compute_metrics, print_metrics, compare_models, analyze_attack_improvements
 )
+from utils.reporting import generate_full_report
 
 
 def set_seed(seed: int = 42):
@@ -156,6 +157,7 @@ def run_experiment(args):
     print("=" * 70)
 
     all_results = {}
+    all_histories = {}
 
     # --- Random Forest (trained on SMOTE-augmented data) ---
     print("\n--- Training Random Forest (with SMOTE augmentation) ---")
@@ -184,6 +186,7 @@ def run_experiment(args):
     mlp_results = compute_metrics(y[test_idx], mlp_pred, mlp_prob, class_names)
     print_metrics(mlp_results, "MLP (Neural Baseline + SMOTE)")
     all_results["MLP"] = mlp_results
+    all_histories["MLP"] = mlp_hist
 
     # ══════════════════════════════════════════════════════════════════
     # STEP 5: LSGNN Baseline
@@ -212,6 +215,7 @@ def run_experiment(args):
     lsgnn_results = evaluate_gnn(lsgnn, data, device, class_names)
     print_metrics(lsgnn_results, "LSGNN (Baseline GNN)")
     all_results["LSGNN"] = lsgnn_results
+    all_histories["LSGNN"] = lsgnn_hist
 
     # ══════════════════════════════════════════════════════════════════
     # STEP 6: LSGNN-DualTask (Novel Modification)
@@ -243,6 +247,7 @@ def run_experiment(args):
     dual_results = evaluate_gnn(lsgnn_dual, data, device, class_names)
     print_metrics(dual_results, "LSGNN-DualTask (Modified GNN)")
     all_results["LSGNN-DualTask"] = dual_results
+    all_histories["LSGNN-DualTask"] = dual_hist
 
     # ══════════════════════════════════════════════════════════════════
     # STEP 7: Comparison and Analysis
@@ -261,6 +266,9 @@ def run_experiment(args):
     # ══════════════════════════════════════════════════════════════════
     # STEP 8: Ablation Study on lambda (Edge Loss Weight)
     # ══════════════════════════════════════════════════════════════════
+    ablation_results = {}
+    seed_results = {}
+
     if args.run_ablation:
         print("\n" + "=" * 70)
         print("  STEP 8: ABLATION STUDY (lambda SENSITIVITY)")
@@ -351,6 +359,32 @@ def run_experiment(args):
             print(f"  {model_name:25s}: {mean_f1:.4f} +/- {std_f1:.4f}")
         print(f"{'=' * 50}")
 
+    # ══════════════════════════════════════════════════════════════════
+    # STEP 9: Generate Reports
+    # ══════════════════════════════════════════════════════════════════
+    config = {
+        "data_path": args.data_path,
+        "seed": args.seed,
+        "hidden_dim": args.hidden_dim,
+        "num_layers": args.num_layers,
+        "dropout": args.dropout,
+        "k": args.k,
+        "epochs": args.epochs,
+        "lr": args.lr,
+        "weight_decay": args.weight_decay,
+        "patience": args.patience,
+        "lambda_edge": args.lambda_edge,
+    }
+
+    generate_full_report(
+        all_results=all_results,
+        histories=all_histories,
+        ablation_results=ablation_results if args.run_ablation else None,
+        multi_seed_results=seed_results if args.multi_seed else None,
+        config=config,
+        output_dir=args.output_dir,
+    )
+
     print("\n[DONE] Experiment complete.")
     return all_results
 
@@ -399,6 +433,8 @@ def main():
                         help="Run ablation study on lambda")
     parser.add_argument("--multi_seed", action="store_true",
                         help="Run multi-seed evaluation for robustness")
+    parser.add_argument("--output_dir", type=str, default="results",
+                        help="Directory to save all reports and plots (default: results)")
 
     args = parser.parse_args()
     run_experiment(args)
