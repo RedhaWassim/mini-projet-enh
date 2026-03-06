@@ -1,0 +1,205 @@
+\documentclass[12pt,a4paper]{article}
+
+% --- Packages ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{parskip}
+\usepackage{tikz}
+\usepackage{tabularx}
+\usepackage{booktabs}
+
+% --- Couleurs Aramisauto ---
+\definecolor{aramisbleu}{HTML}{003B5C}
+\definecolor{aramisvert}{HTML}{6CBE1F}
+\definecolor{grisclair}{HTML}{F5F5F5}
+\definecolor{gristexte}{HTML}{4A4A4A}
+
+% --- Mise en page ---
+\geometry{top=2.5cm, bottom=2.5cm, left=2.5cm, right=2.5cm}
+
+% --- Hyperref ---
+\hypersetup{
+    colorlinks=true,
+    linkcolor=aramisbleu,
+    urlcolor=aramisbleu,
+    citecolor=aramisbleu
+}
+
+% --- Titres personnalisés ---
+\titleformat{\section}
+    {\Large\bfseries\color{aramisbleu}}
+    {\thesection.}{0.5em}{}
+    [\vspace{-0.5em}\textcolor{aramisvert}{\rule{\textwidth}{1.5pt}}]
+
+\titleformat{\subsection}
+    {\large\bfseries\color{aramisbleu}}
+    {\thesubsection.}{0.5em}{}
+
+% --- En-tête / Pied de page ---
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\fancyfoot[C]{\small\textcolor{gristexte}{\thepage}}
+\fancyfoot[R]{\small\textcolor{gristexte}{Aramisauto -- Stage IA 2025}}
+
+\begin{document}
+
+% ============================================================
+%   PAGE DE GARDE
+% ============================================================
+\begin{titlepage}
+    \centering
+    \vspace*{1cm}
+
+    % --- Logo ---
+    \includegraphics[width=0.45\textwidth]{figures/aramisauto_logo.png}
+
+    \vspace{2cm}
+
+    % --- Titre principal ---
+    {\fontsize{22}{26}\selectfont\bfseries\color{aramisbleu}
+    Sujet de Stage\par}
+
+    \vspace{0.8cm}
+
+    \textcolor{aramisvert}{\rule{0.7\textwidth}{2pt}}
+
+    \vspace{0.8cm}
+
+    {\fontsize{16}{20}\selectfont\color{aramisbleu}
+    Déploiement et Optimisation d'un LLM Open Source\\[0.3cm]
+    pour un Chatbot Client\par}
+
+    \vspace{1.5cm}
+
+    % --- Encadrants ---
+    \begin{tikzpicture}
+        \node[fill=grisclair, rounded corners=8pt, inner sep=18pt, text width=0.75\textwidth, align=center] {
+            {\large\bfseries\color{aramisbleu} Encadrants}\\[12pt]
+            {\normalsize\color{gristexte}
+            \textbf{Fabrice Simon}\\
+            Head of Data Science and Data Engineering\\[10pt]
+            \textbf{Valentin Breton}\\
+            Senior Machine Learning Engineer / AI Engineer}
+        };
+    \end{tikzpicture}
+
+    \vfill
+
+    % --- Infos bas de page ---
+    {\large\color{gristexte}
+    \textbf{Machine Learning \& Generative AI Engineer -- Internship (6 mois)}\\[6pt]
+    Arcueil, France\\[6pt]
+    2025}
+
+\end{titlepage}
+
+% ============================================================
+%   CONTENU
+% ============================================================
+
+\section{Contexte}
+
+\textbf{Aramisauto}, leader européen de la vente de véhicules d'occasion reconditionnés en ligne, s'appuie sur une forte culture de la donnée et de l'innovation technologique. Dans le cadre de l'amélioration continue de l'expérience client, le groupe souhaite intégrer un \textbf{chatbot conversationnel intelligent} directement sur son site web, capable de répondre aux questions des clients en \textbf{français et en anglais}.
+
+Ce chatbot sera alimenté par un \textbf{Large Language Model (LLM) open source}, déployé et optimisé en interne, afin de garantir la maîtrise des coûts, la confidentialité des données et la personnalisation du ton et du vocabulaire propres à l'univers automobile et au groupe Aramisauto.
+
+\section{Objectifs du stage}
+
+L'objectif principal est de \textbf{concevoir, adapter et déployer un LLM open source} performant pour alimenter un chatbot exposé aux clients du groupe. Le stagiaire interviendra sur l'ensemble de la chaîne, de la sélection du modèle à sa mise en production.
+
+\section{Missions principales}
+
+\subsection{Benchmarking \& Sélection de modèle}
+
+\begin{itemize}[leftmargin=1.5em, itemsep=4pt]
+    \item Évaluer les modèles open source récents : \textbf{Llama 3}, \textbf{Mistral}, \textbf{Gemma}, et autres modèles pertinents.
+    \item Définir des critères de comparaison : qualité de génération en \textbf{français/anglais}, latence d'inférence, empreinte mémoire, facilité de fine-tuning.
+    \item Produire un \textbf{rapport de benchmark} avec recommandations argumentées pour le choix final du modèle.
+\end{itemize}
+
+\subsection{Fine-tuning \& Adaptation au domaine}
+
+\begin{itemize}[leftmargin=1.5em, itemsep=4pt]
+    \item Explorer les techniques de fine-tuning (\textbf{LoRA}, \textbf{QLoRA}, full fine-tuning) pour adapter le modèle au \textbf{ton}, au \textbf{vocabulaire} et aux \textbf{cas d'usage} spécifiques du groupe (automobile, service client, après-vente).
+    \item Constituer ou exploiter des jeux de données internes pour l'entraînement.
+    \item Valider la qualité des réponses après adaptation.
+\end{itemize}
+
+\subsection{Mise en production (Inférence optimisée)}
+
+\begin{itemize}[leftmargin=1.5em, itemsep=4pt]
+    \item Optimiser le modèle pour l'inférence : \textbf{quantization} (GPTQ, AWQ, GGUF), \textbf{batching}, \textbf{KV-cache}, choix du framework de serving (\textbf{vLLM}, \textbf{TGI}, \textbf{Ollama}).
+    \item Garantir des temps de réponse compatibles avec une expérience utilisateur fluide.
+    \item Dimensionner l'infrastructure GPU nécessaire.
+\end{itemize}
+
+\subsection{Intégration API}
+
+\begin{itemize}[leftmargin=1.5em, itemsep=4pt]
+    \item Développer une \textbf{couche API REST} avec \textbf{FastAPI} (Python) pour exposer le modèle.
+    \item Implémenter le \textbf{streaming} des réponses (Server-Sent Events / WebSocket).
+    \item Assurer la connexion avec le front-end du site web du groupe.
+    \item Mettre en place la gestion des sessions conversationnelles et du contexte.
+\end{itemize}
+
+\subsection{Évaluation \& Monitoring}
+
+\begin{itemize}[leftmargin=1.5em, itemsep=4pt]
+    \item Mettre en place un \textbf{pipeline d'évaluation automatique} basé sur l'approche \textbf{LLM-as-a-judge} pour mesurer la pertinence, la cohérence et la qualité des réponses.
+    \item Définir des métriques clés : fidélité, pertinence, fluence, sécurité des réponses.
+    \item Suivre les performances du modèle en production (monitoring, alerting, drift detection).
+\end{itemize}
+
+\section{Compétences mobilisées}
+
+\begin{tabularx}{\textwidth}{>{\bfseries\color{aramisbleu}}l X}
+    \toprule
+    Domaine & Compétences \\
+    \midrule
+    NLP / LLM & Transformers, fine-tuning (LoRA/QLoRA), prompt engineering, RAG \\
+    Frameworks & Hugging Face, PyTorch, vLLM, TGI, LangChain \\
+    Développement & Python, FastAPI, API REST, Docker \\
+    Infrastructure & GPU computing, quantization, optimisation d'inférence \\
+    Évaluation & LLM-as-a-judge, métriques NLG, A/B testing \\
+    Langues & Français, Anglais \\
+    \bottomrule
+\end{tabularx}
+
+\section{Livrables attendus}
+
+\begin{enumerate}[leftmargin=1.5em, itemsep=4pt]
+    \item \textbf{Rapport de benchmark} des modèles LLM open source évalués.
+    \item \textbf{Modèle fine-tuné} adapté au domaine Aramisauto.
+    \item \textbf{API de production} (FastAPI) prête à l'intégration.
+    \item \textbf{Pipeline d'évaluation} automatisé (LLM-as-a-judge).
+    \item \textbf{Documentation technique} complète (architecture, déploiement, maintenance).
+\end{enumerate}
+
+\section{Informations pratiques}
+
+\begin{tabularx}{\textwidth}{>{\bfseries\color{aramisbleu}}l X}
+    \toprule
+    Intitulé & Machine Learning \& Generative AI Engineer (Stage) \\
+    Durée & 6 mois \\
+    Lieu & Arcueil, France \\
+    Équipe & Data Science \& Data Engineering \\
+    \bottomrule
+\end{tabularx}
+
+\vspace{1cm}
+
+\begin{center}
+    \small\color{gristexte}
+    Offre originale : \url{https://www.emploi-aramisauto.com/jobs/6948096-machine-learning-generative-ai-engineer-arcueil-internship-6-month-f-h/605ff09a-39da-43a4-bad6-38ba833929ab}
+\end{center}
+
+\end{document}
