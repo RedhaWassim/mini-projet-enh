@@ -1,8 +1,23 @@
-\documentclass[aspectratio=169, 11pt]{beamer}
+\documentclass[aspectratio=169, 10pt]{beamer}
 
-% ── Theme ──
+% ── Theme & Colors ──────────────────────────────────────────────────
 \usetheme{Madrid}
 \usecolortheme{whale}
+\definecolor{darkblue}{RGB}{0,51,102}
+\definecolor{lightblue}{RGB}{230,240,250}
+\definecolor{accentorange}{RGB}{230,120,30}
+\definecolor{accentgreen}{RGB}{34,139,34}
+\definecolor{accentred}{RGB}{200,50,50}
+\setbeamercolor{title}{fg=white,bg=darkblue}
+\setbeamercolor{frametitle}{fg=white,bg=darkblue}
+\setbeamercolor{block title}{fg=white,bg=darkblue}
+\setbeamercolor{block body}{bg=lightblue}
+\setbeamercolor{block title alerted}{fg=white,bg=accentred}
+\setbeamercolor{block body alerted}{bg=accentred!8}
+\setbeamercolor{block title example}{fg=white,bg=accentgreen!80!black}
+\setbeamercolor{block body example}{bg=accentgreen!8}
+\setbeamercolor{item}{fg=darkblue}
+\setbeamercolor{structure}{fg=darkblue}
 \setbeamertemplate{navigation symbols}{}
 \setbeamertemplate{footline}{%
   \leavevmode%
@@ -19,12 +34,15 @@
   \vskip0pt%
 }
 
-% ── Packages ──
+% ── Packages ────────────────────────────────────────────────────────
 \usepackage{amsmath,amssymb,bm}
 \usepackage{booktabs}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc,fit}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc,fit,decorations.pathreplacing,backgrounds}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
 \usepackage{array}
+\usepackage{multirow}
 \usepackage{mathtools}
 
 % ── Shortcuts ──
@@ -32,106 +50,203 @@
 \newcommand{\Loss}{\mathcal{L}}
 \newcommand{\vect}[1]{\bm{#1}}
 \newcommand{\mat}[1]{\mathbf{#1}}
-\DeclareMathOperator{\softmax}{softmax}
 \DeclareMathOperator{\ReLU}{ReLU}
 \DeclareMathOperator{\LN}{LayerNorm}
 
 % ── Meta ──
-\title[LSGNN-DualTask for IDS]{LSGNN-DualTask for Network Intrusion Detection}
-\subtitle{From Raw Packets to Graph Neural Network Classification}
+\title[LSGNN-DualTask]{LSGNN-DualTask}
+\subtitle{A Graph Neural Network with Edge Consistency Regularization\\for Network Intrusion Detection}
 \author[Authors]{Author One \and Author Two \and Author Three}
 \institute[University]{Department of Computer Science \\ University Placeholder}
-\date{2025}
+\date{2025--2026}
 
 \begin{document}
 
-% ═══════════════════════════════════════════════════════════════════════
+% ═══════════════════════════════════════════════════════════════════
 % SLIDE 1 — Title
-% ═══════════════════════════════════════════════════════════════════════
+% ═══════════════════════════════════════════════════════════════════
 \begin{frame}
 \titlepage
 \end{frame}
 
-% ═══════════════════════════════════════════════════════════════════════
+% ═══════════════════════════════════════════════════════════════════
 % SLIDE 2 — Outline
-% ═══════════════════════════════════════════════════════════════════════
+% ═══════════════════════════════════════════════════════════════════
 \begin{frame}{Outline}
 \tableofcontents
 \end{frame}
 
-% ═══════════════════════════════════════════════════════════════════════
-\section{Introduction \& Problem Statement}
-% ═══════════════════════════════════════════════════════════════════════
+% ═══════════════════════════════════════════════════════════════════
+\section{Introduction \& Motivation}
+% ═══════════════════════════════════════════════════════════════════
 
-% SLIDE 3 — Problem
-\begin{frame}{The Problem: Network Intrusion Detection}
-
+% SLIDE 3 — Problem Statement
+\begin{frame}{Network Intrusion Detection: The Challenge}
 \begin{columns}[T]
 \begin{column}{0.55\textwidth}
-\textbf{Goal:} Classify network packets into 5 traffic types
-
-\vspace{0.5em}
+\begin{block}{Problem}
+Detect malicious activities in network traffic \textbf{in real time}
+\end{block}
+\vspace{0.3cm}
+\textbf{Traditional approaches:}
 \begin{itemize}
-    \item \textbf{BENIGNE} --- Normal traffic
-    \item \textbf{Copy 54ndc47 (SMB)} --- File copy attack
-    \item \textbf{Service Creation} --- Persistence via remote services
-    \item \textbf{Discover local hosts} --- Network scanning
-    \item \textbf{View remote shares} --- SMB share enumeration
+    \item Signature-based matching --- \textit{cannot detect novel attacks}
+    \item Statistical thresholds --- \textit{high false positive rate}
+    \item ML on flat features --- \textit{ignores relational structure}
 \end{itemize}
-
-\vspace{0.5em}
-\textbf{Challenges:}
-\begin{enumerate}
-    \item Only \textbf{9 raw columns} (IPs, ports, timestamp, length)
-    \item \textbf{Extreme class imbalance} (majority class dominates)
-    \item Attacks are \textbf{sequential stages} of lateral movement
-\end{enumerate}
+\vspace{0.3cm}
+\textbf{Key insight:} Network traffic is inherently \textbf{relational} --- flows between hosts form a \textbf{graph structure}.
 \end{column}
-
-\begin{column}{0.4\textwidth}
+\begin{column}{0.42\textwidth}
 \centering
-\begin{tikzpicture}[scale=0.7, every node/.style={scale=0.7}]
-    % Bar chart for class imbalance
-    \draw[->] (0,0) -- (0,5.2) node[above, font=\small] {Count};
-    \draw[->] (0,0) -- (5.5,0);
+\begin{tikzpicture}[
+    host/.style={circle, draw=darkblue, fill=lightblue, minimum size=0.8cm, font=\scriptsize\bfseries},
+    attack/.style={circle, draw=accentred, fill=accentred!15, minimum size=0.8cm, font=\scriptsize\bfseries},
+    flow/.style={-{Stealth[length=2mm]}, thick},
+    badflow/.style={-{Stealth[length=2mm]}, thick, color=accentred, dashed}
+]
+    \node[host] (h1) {H1};
+    \node[host, right=1.5cm of h1] (h2) {H2};
+    \node[host, below=1.2cm of h1] (h3) {H3};
+    \node[attack, below=1.2cm of h2] (h4) {H4};
+    \node[host, below right=0.6cm and 0.8cm of h3] (h5) {H5};
 
-    \fill[blue!70] (0.3,0) rectangle (1.2,1.5);
-    \fill[red!70]  (1.5,0) rectangle (2.4,4.5);
-    \fill[orange!70] (2.7,0) rectangle (3.6,0.3);
-    \fill[green!60!black] (3.9,0) rectangle (4.8,0.2);
-    \fill[purple!70] (5.1,0) rectangle (5.4,0.05);
+    \draw[flow, darkblue] (h1) -- (h2);
+    \draw[flow, darkblue] (h1) -- (h3);
+    \draw[flow, darkblue] (h3) -- (h5);
+    \draw[badflow] (h4) -- (h2);
+    \draw[badflow] (h4) -- (h3);
+    \draw[badflow] (h4) -- (h5);
 
-    \node[below, font=\tiny, rotate=45, anchor=north east] at (0.75,0) {BEN};
-    \node[below, font=\tiny, rotate=45, anchor=north east] at (1.95,0) {Copy};
-    \node[below, font=\tiny, rotate=45, anchor=north east] at (3.15,0) {Svc};
-    \node[below, font=\tiny, rotate=45, anchor=north east] at (4.35,0) {Disc};
-    \node[below, font=\tiny, rotate=45, anchor=north east] at (5.25,0) {View};
-
-    \node[font=\small\bfseries, red] at (2.8, 5.0) {Severe Imbalance!};
+    \node[below=0.3cm of h5, font=\scriptsize] {{\color{darkblue}---} Normal \quad {\color{accentred}- - -} Attack};
 \end{tikzpicture}
 \end{column}
 \end{columns}
-
 \end{frame}
 
-% ═══════════════════════════════════════════════════════════════════════
-% SLIDE 4 — Pipeline Overview
-% ═══════════════════════════════════════════════════════════════════════
-\begin{frame}{Our Pipeline: 6 Stages}
+% SLIDE 4 — Three Challenges
+\begin{frame}{Three Key Challenges}
+\begin{columns}[T]
+\begin{column}{0.32\textwidth}
+\begin{block}{\centering Sparse Features}
+\centering
+\begin{tikzpicture}[scale=0.8]
+    \draw[fill=lightblue, draw=darkblue, thick, rounded corners] (0,0) rectangle (3,2.5);
+    \node[font=\scriptsize, align=center] at (1.5,2) {src\_ip, dst\_ip};
+    \node[font=\scriptsize, align=center] at (1.5,1.5) {src\_port, dst\_port};
+    \node[font=\scriptsize, align=center] at (1.5,1) {protocol, length};
+    \node[font=\scriptsize, align=center] at (1.5,0.5) {\textbf{only 9 columns}};
+\end{tikzpicture}
+\vspace{0.1cm}
+\centering\scriptsize\color{accentred}\textbf{Insufficient signal!}
+\end{block}
+\end{column}
+\begin{column}{0.32\textwidth}
+\begin{block}{\centering Class Imbalance}
+\centering
+\begin{tikzpicture}[scale=0.8]
+    \fill[darkblue!70] (0,0) rectangle (2.8,2.2);
+    \fill[accentorange!70] (0,0) rectangle (1.2,0.6);
+    \fill[accentgreen!70] (1.3,0) rectangle (1.9,0.25);
+    \fill[accentred!70] (2.0,0) rectangle (2.4,0.15);
+    \node[font=\scriptsize, white] at (1.4,1.3) {\textbf{68.6\%}};
+    \node[font=\scriptsize, white] at (1.4,0.8) {majority};
+\end{tikzpicture}
+\vspace{0.1cm}
+\centering\scriptsize\color{accentred}\textbf{40:1 imbalance ratio!}
+\end{block}
+\end{column}
+\begin{column}{0.32\textwidth}
+\begin{block}{\centering Heterophily}
+\centering
+\begin{tikzpicture}[scale=0.8]
+    \node[circle, fill=darkblue!40, draw=darkblue, minimum size=0.5cm, font=\tiny] (a) at (0,1.5) {N};
+    \node[circle, fill=accentred!40, draw=accentred, minimum size=0.5cm, font=\tiny] (b) at (2,2) {A};
+    \node[circle, fill=darkblue!40, draw=darkblue, minimum size=0.5cm, font=\tiny] (c) at (1,0.5) {N};
+    \node[circle, fill=accentred!40, draw=accentred, minimum size=0.5cm, font=\tiny] (d) at (2.5,0.5) {A};
+    \draw[thick] (a) -- (b);
+    \draw[thick] (a) -- (c);
+    \draw[thick] (b) -- (c);
+    \draw[thick] (c) -- (d);
+\end{tikzpicture}
+\vspace{0.1cm}
+\centering\scriptsize\color{accentred}\textbf{15\% cross-class edges!}
+\end{block}
+\end{column}
+\end{columns}
+\vspace{0.5cm}
+\begin{center}
+\Large $\Longrightarrow$ \textbf{Need: rich features + graph-aware model + imbalance handling}
+\end{center}
+\end{frame}
 
+% ═══════════════════════════════════════════════════════════════════
+\section{Related Work}
+% ═══════════════════════════════════════════════════════════════════
+
+% SLIDE 5 — Related Work
+\begin{frame}{Related Work}
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\begin{block}{ML for Intrusion Detection}
+\begin{itemize}
+    \item Random Forest, SVM, ensemble methods
+    \item Deep learning: autoencoders, CNNs, RNNs
+    \item Benchmarks: NSL-KDD, UNSW-NB15, CICIDS
+    \item[$\times$] Treat flows as \textbf{independent} samples
+\end{itemize}
+\end{block}
+\vspace{0.2cm}
+\begin{block}{GNNs for Cybersecurity}
+\begin{itemize}
+    \item E-GraphSAGE for IoT IDS [Lo '22]
+    \item GNN-based NIDS [Chang '21]
+    \item Botnet detection via topology [Pujol '22]
+    \item[$\times$] Assume \textbf{homophilic} graph structure
+\end{itemize}
+\end{block}
+\end{column}
+\begin{column}{0.48\textwidth}
+\begin{block}{Handling Heterophily}
+\begin{itemize}
+    \item H2GCN [Zhu '20] --- ego/neighbor separation
+    \item LINKX [Lim '21] --- decouple structure \& features
+    \item \textbf{LSGNN} [Wu '23] --- local similarity weighting
+    \item[\checkmark] \textbf{Adaptive} message passing
+\end{itemize}
+\end{block}
+\vspace{0.2cm}
+\begin{block}{Multi-Task GNN Learning}
+\begin{itemize}
+    \item Self-supervised: link prediction, contrastive
+    \item Graph InfoMax [Veli\v{c}kovi\'{c} '19]
+    \item[\checkmark] \textbf{Our edge consistency}: predicts \textit{label agreement}, not edge existence
+\end{itemize}
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Proposed Pipeline}
+% ═══════════════════════════════════════════════════════════════════
+
+% SLIDE 6 — Pipeline Overview
+\begin{frame}{Our Pipeline: End-to-End Architecture}
 \centering
 \begin{tikzpicture}[
     node distance=0.4cm,
-    stage/.style={draw, rounded corners, fill=blue!15, minimum width=3.8cm, minimum height=0.9cm, font=\small, align=center},
-    arrow/.style={-{Stealth[length=3mm]}, thick, blue!60}
+    stage/.style={draw=darkblue, rounded corners=4pt, fill=lightblue, minimum width=3.5cm, minimum height=0.9cm, font=\small, align=center},
+    contrib/.style={draw=accentorange, rounded corners=4pt, fill=accentorange!15, minimum width=3.5cm, minimum height=0.9cm, font=\small\bfseries, align=center},
+    arrow/.style={-{Stealth[length=3mm]}, very thick, darkblue!60}
 ]
-    \node[stage] (s1) {1. Feature Engineering\\(9 cols $\to$ 68 features)};
-    \node[stage, right=of s1] (s2) {2. SMOTE\\(Class Balancing)};
-    \node[stage, right=of s2] (s3) {3. Graph Construction\\(k-NN + Communication)};
+    \node[stage] (s1) {1. Feature Engineering\\{\scriptsize 9 cols $\to$ 68 features}};
+    \node[stage, right=of s1] (s2) {2. SMOTE\\{\scriptsize Class Balancing}};
+    \node[stage, right=of s2] (s3) {3. Graph Construction\\{\scriptsize k-NN + Communication}};
 
-    \node[stage, below=0.6cm of s1] (s4) {4. LSGNN\\(Similarity Message Passing)};
-    \node[stage, right=of s4, fill=red!15] (s5) {5. DualTask Extension\\(Edge Consistency Loss)};
-    \node[stage, right=of s5] (s6) {6. Training \& Evaluation\\(AdamW + Warmup)};
+    \node[stage, below=0.7cm of s1] (s4) {4. LSGNN Backbone\\{\scriptsize Similarity Msg Passing}};
+    \node[contrib, right=of s4] (s5) {5. DualTask Extension\\{\scriptsize Edge Consistency Loss}};
+    \node[stage, right=of s5] (s6) {6. Training \& Eval\\{\scriptsize AdamW + Early Stopping}};
 
     \draw[arrow] (s1) -- (s2);
     \draw[arrow] (s2) -- (s3);
@@ -140,102 +255,96 @@
     \draw[arrow] (s5) -- (s6);
 \end{tikzpicture}
 
-\vspace{1em}
+\vspace{0.8em}
 \begin{block}{Key Contribution}
-Stage 5: \textbf{LSGNN-DualTask} --- adds edge consistency regularization to the LSGNN backbone, improving rare-class detection with $<$4\% parameter overhead.
+Stage 5: \textbf{LSGNN-DualTask} --- adds edge consistency regularization to the LSGNN backbone, improving detection across all classes with $<$4\% parameter overhead.
 \end{block}
-
 \end{frame}
 
-% ═══════════════════════════════════════════════════════════════════════
+% ═══════════════════════════════════════════════════════════════════
 \section{Feature Engineering}
-% ═══════════════════════════════════════════════════════════════════════
+% ═══════════════════════════════════════════════════════════════════
 
-% SLIDE 5 — Feature Engineering Overview
-\begin{frame}{Stage 1: Feature Engineering --- 9 Columns to 68 Features}
+% SLIDE 7 — Feature Engineering Overview
+\begin{frame}{Stage 1: Feature Engineering (9 $\rightarrow$ 68 features)}
+\begin{center}
+\begin{tikzpicture}[
+    rawbox/.style={rectangle, draw=darkblue, fill=darkblue!10, rounded corners=2pt, minimum width=2cm, minimum height=0.5cm, font=\scriptsize, align=center},
+    featbox/.style={rectangle, draw=accentgreen!70!black, fill=accentgreen!10, rounded corners=2pt, minimum width=3.2cm, minimum height=0.5cm, font=\scriptsize, align=center},
+    arrow/.style={-{Stealth[length=2mm]}, thick, darkblue!60}
+]
+    % Raw columns
+    \node[rawbox] (r1) at (0,3) {src\_ip, dst\_ip};
+    \node[rawbox] (r2) at (0,2.2) {src\_port, dst\_port};
+    \node[rawbox] (r3) at (0,1.4) {protocol};
+    \node[rawbox] (r4) at (0,0.6) {length};
+    \node[rawbox] (r5) at (0,-0.2) {timestamp};
 
+    % Feature groups
+    \node[featbox] (f1) at (6.5,3.6) {\textbf{IP Encoding} (12 features)};
+    \node[featbox] (f2) at (6.5,2.8) {\textbf{Packet-level} (14 features)};
+    \node[featbox] (f3) at (6.5,2.0) {\textbf{Protocol} (4 features)};
+    \node[featbox] (f4) at (6.5,1.2) {\textbf{Temporal} (11 features)};
+    \node[featbox] (f5) at (6.5,0.4) {\textbf{Per-source stats} (7 features)};
+    \node[featbox] (f6) at (6.5,-0.4) {\textbf{Per-dest stats} (3 features)};
+    \node[featbox] (f7) at (6.5,-1.2) {\textbf{Flow-pair} (6+ features)};
+
+    % Center transformation
+    \node[rectangle, draw=accentorange, fill=accentorange!15, rounded corners=6pt, minimum width=1.2cm, minimum height=4cm, font=\footnotesize\bfseries, align=center, rotate=90] (eng) at (3.3,1.2) {Feature Engineering};
+
+    % Arrows
+    \foreach \r in {r1,r2,r3,r4,r5} \draw[arrow] (\r) -- (eng);
+    \foreach \f in {f1,f2,f3,f4,f5,f6,f7} \draw[arrow] (eng) -- (\f);
+
+    \node[font=\footnotesize\bfseries, color=darkblue] at (0,3.8) {9 Raw Columns};
+    \node[font=\footnotesize\bfseries, color=accentgreen!70!black] at (6.5,4.4) {68 Engineered Features};
+\end{tikzpicture}
+\end{center}
+\end{frame}
+
+% SLIDE 8 — Feature Details
+\begin{frame}{Feature Engineering: Details}
+\small
 \begin{columns}[T]
 \begin{column}{0.48\textwidth}
-\textbf{Raw Data (9 columns):}
-\begin{itemize}
-    \item \texttt{packet\_id}, \texttt{timestamp}
-    \item \texttt{src\_ip}, \texttt{dst\_ip}
-    \item \texttt{protocol}
-    \item \texttt{src\_port}, \texttt{dst\_port}
-    \item \texttt{length}, \texttt{label}
-\end{itemize}
-
-\vspace{0.5em}
-\textbf{Why?} IP strings and raw port numbers are not directly usable. We need \emph{meaningful numeric representations}.
+\begin{block}{Packet-level (14)}
+Port categories (well-known, registered, dynamic), key service port flags (80, 443, 445, 135, 21, 53), log-length, same-port indicator
+\end{block}
+\begin{block}{IP Encoding (12)}
+Octets as numeric, subnet match (/16, /24), internal vs.\ external IP, missing IP flags
+\end{block}
+\begin{block}{Protocol (4)}
+One-hot: TCP, UDP, ICMP, missing
+\end{block}
 \end{column}
-
 \begin{column}{0.48\textwidth}
-\textbf{7 Feature Groups (68 total):}
-
-\begin{tabular}{@{}lr@{}}
-\toprule
-\textbf{Group} & \textbf{Count} \\
-\midrule
-Packet-level (length, ports) & 14 \\
-Protocol one-hot & 4 \\
-IP address encoding & 12 \\
-Temporal (IAT, bursts) & 11 \\
-Per-source statistics & 7 \\
-Per-destination statistics & 3 \\
-Flow-pair \& advanced & 21 \\
-\midrule
-\textbf{Total} & \textbf{68} \\
-\bottomrule
-\end{tabular}
+\begin{block}{Temporal (11)}
+Relative timestamp, inter-arrival time (IAT), log-IAT, burst detection, rolling windows ($w\!=\!10$, $50$)
+\end{block}
+\begin{block}{Per-source Stats (7)}
+Frequency, avg length, unique destinations, port entropy, packet/byte rate
+\end{block}
+\begin{block}{Flow-pair (6+)}
+IP-pair frequency, packet count, avg length, reverse flow indicator, time since first packet
+\end{block}
 \end{column}
 \end{columns}
-
+\vspace{0.3cm}
+\centering
+\textit{Transforms sparse 9-column data into a rich representation capturing temporal dynamics and communication patterns.}
 \end{frame}
 
-% ═══════════════════════════════════════════════════════════════════════
-% SLIDE 6 — Key Feature Formulas
-% ═══════════════════════════════════════════════════════════════════════
-\begin{frame}{Feature Engineering: Key Mathematical Formulations}
+% ═══════════════════════════════════════════════════════════════════
+\section{Data Augmentation \& Graph Construction}
+% ═══════════════════════════════════════════════════════════════════
 
-\textbf{Log-length transform} (reduces skew):
-\[
-    \text{length\_log}_i = \log(1 + \ell_i)
-\]
-
-\textbf{Inter-arrival time} (captures burst behavior):
-\[
-    \Delta t_i = t_i - t_{i-1}, \qquad \text{is\_burst}_i = \mathbb{1}[\Delta t_i < 0.001\text{s}]
-\]
-
-\textbf{Port entropy} (detects scanning):
-\[
-    H_{\text{port}}(\text{src}_i) = -\sum_p \hat{f}_p \log_2 \hat{f}_p
-\]
-
-\textbf{Frequency encoding} (replaces categorical IPs):
-\[
-    \text{src\_ip\_freq}_i = \frac{|\{j : \text{src\_ip}_j = \text{src\_ip}_i\}|}{N}
-\]
-
-\textbf{Standardization} (zero mean, unit variance):
-\[
-    \hat{x}^{(k)}_i = \frac{x^{(k)}_i - \mu_k}{\sigma_k}
-\]
-
-\end{frame}
-
-% ═══════════════════════════════════════════════════════════════════════
-\section{Handling Class Imbalance}
-% ═══════════════════════════════════════════════════════════════════════
-
-% SLIDE 7 — SMOTE
-\begin{frame}{Stage 2: SMOTE --- Synthetic Minority Oversampling}
-
+% SLIDE 9 — SMOTE
+\begin{frame}{Stage 2: SMOTE --- Handling Class Imbalance}
 \begin{columns}[T]
 \begin{column}{0.55\textwidth}
 \textbf{SMOTE Algorithm:}
 \begin{enumerate}
-    \item For minority sample $\vect{x}_i$, find $k=5$ nearest same-class neighbors
+    \item For minority sample $\vect{x}_i$, find $k\!=\!5$ nearest same-class neighbors
     \item Pick random neighbor $\vect{x}_j$
     \item Interpolate:
 \end{enumerate}
@@ -244,114 +353,138 @@ Flow-pair \& advanced & 21 \\
 \]
 
 \vspace{0.3em}
-\textbf{Two-step approach for tiny classes:}
+\textbf{Two-step for small classes:}
 \begin{enumerate}
     \item \textbf{RandomOverSampler}: duplicate until $\geq 6$ samples
     \item \textbf{SMOTE}: generate up to 30\% of majority count
 \end{enumerate}
 
 \vspace{0.3em}
+\textbf{Result:} Training set: 45{,}900 $\to$ 63{,}218 samples
+
 \textbf{Only training set is augmented!}
 \end{column}
-
 \begin{column}{0.4\textwidth}
 \centering
-\begin{tikzpicture}[scale=0.85]
+\begin{tikzpicture}[scale=0.9]
     % Original points
-    \fill[blue!80] (0,0) circle (3pt) node[below left, font=\tiny] {$\vect{x}_i$};
-    \fill[blue!80] (2,1.5) circle (3pt) node[above right, font=\tiny] {$\vect{x}_j$};
-    \fill[blue!80] (1.5,-0.5) circle (3pt);
-    \fill[blue!80] (-0.5,1) circle (3pt);
+    \fill[darkblue!80] (0,0) circle (3pt) node[below left, font=\tiny] {$\vect{x}_i$};
+    \fill[darkblue!80] (2,1.5) circle (3pt) node[above right, font=\tiny] {$\vect{x}_j$};
+    \fill[darkblue!80] (1.5,-0.5) circle (3pt);
+    \fill[darkblue!80] (-0.5,1) circle (3pt);
 
-    % Line between xi and xj
+    % Line
     \draw[dashed, gray] (0,0) -- (2,1.5);
 
-    % Synthetic point
-    \fill[red!80] (0.8,0.6) circle (3pt);
-    \fill[red!80] (1.2,0.9) circle (3pt);
-    \fill[red!80] (1.5,1.12) circle (3pt);
+    % Synthetic points
+    \fill[accentorange] (0.8,0.6) circle (3pt);
+    \fill[accentorange] (1.2,0.9) circle (3pt);
+    \fill[accentorange] (1.5,1.12) circle (3pt);
 
-    \node[font=\tiny, red!80, right] at (1.6,0.8) {synthetic};
+    \node[font=\tiny, accentorange, right] at (1.6,0.8) {synthetic};
 
     % Legend
-    \fill[blue!80] (-0.8,-1.2) circle (3pt);
+    \fill[darkblue!80] (-0.8,-1.2) circle (3pt);
     \node[font=\tiny, right] at (-0.6,-1.2) {Original};
-    \fill[red!80] (0.8,-1.2) circle (3pt);
+    \fill[accentorange] (0.8,-1.2) circle (3pt);
     \node[font=\tiny, right] at (1.0,-1.2) {SMOTE};
 \end{tikzpicture}
 
 \vspace{0.5em}
-\textbf{Class weights (complement):}
+\textbf{Class weights:}
 \[
-w_c = \frac{N}{C \cdot n_c}
+w_c = \frac{N}{C \cdot n_c} \quad \text{clipped to } [0.1, 10.0]
 \]
-clipped to $[0.1, 10.0]$
 \end{column}
 \end{columns}
-
 \end{frame}
 
-% ═══════════════════════════════════════════════════════════════════════
-\section{Graph Construction}
-% ═══════════════════════════════════════════════════════════════════════
-
-% SLIDE 8 — Graph Construction
-\begin{frame}{Stage 3: Graph Construction --- Packets as Nodes}
-
-\textbf{Why a graph?} Packets are \emph{not} independent --- they share sources, targets, timing.
-
-\vspace{0.5em}
+% SLIDE 10 — Graph Construction
+\begin{frame}{Stage 3: Graph Construction}
 \begin{columns}[T]
-\begin{column}{0.48\textwidth}
-\textbf{k-NN Edges} ($k=10$, cosine distance):
-\[
-    d_{\cos}(\vect{x}_i, \vect{x}_j) = 1 - \frac{\vect{x}_i \cdot \vect{x}_j}{\|\vect{x}_i\|\|\vect{x}_j\|}
-\]
-Connect each node to its 10 most similar neighbors. Symmetrize $\Rightarrow$ undirected graph.
-
-\vspace{0.5em}
-\textbf{Communication-Based Edges:}
+\begin{column}{0.5\textwidth}
+\begin{block}{k-NN Similarity Edges}
 \begin{itemize}
-    \item \textbf{IP-pair}: same (src, dst) pair
-    \item \textbf{Port-based}: same dst\_port
+    \item $k$ nearest neighbors in feature space
+    \item Cosine distance metric
+    \item Symmetrized $\Rightarrow$ undirected graph
+    \item Captures: \textit{flows with similar patterns}
 \end{itemize}
-\end{column}
-
-\begin{column}{0.48\textwidth}
-\textbf{Edge Homophily:}
-\[
-    h = \frac{|\{(i,j) \in \mathcal{E} : y_i = y_j\}|}{|\mathcal{E}|} = 0.962
-\]
-
-96.2\% of edges connect same-class nodes $\Rightarrow$ \textbf{highly homophilic} graph.
-
-\vspace{0.5em}
-\begin{block}{Implication}
-GNNs can leverage this: a node's neighbors are very likely the same class, so message passing \emph{reinforces} correct predictions.
+\end{block}
+\vspace{0.2cm}
+\begin{block}{Communication-Based Edges}
+\begin{itemize}
+    \item Same (src\_ip, dst\_ip) pair
+    \item Same destination port
+    \item Chain/windowed for large groups
+    \item Captures: \textit{attack campaign structure}
+\end{itemize}
 \end{block}
 \end{column}
-\end{columns}
+\begin{column}{0.47\textwidth}
+\centering
+\begin{tikzpicture}[scale=0.85,
+    node/.style={circle, minimum size=0.35cm, inner sep=0},
+    normal/.style={node, fill=darkblue!50, draw=darkblue},
+    atk1/.style={node, fill=accentred!50, draw=accentred},
+    atk2/.style={node, fill=accentorange!50, draw=accentorange},
+]
+    \node[normal] (n1) at (0,3) {};
+    \node[normal] (n2) at (1,3.5) {};
+    \node[normal] (n3) at (0.5,2.3) {};
+    \node[atk1] (a1) at (3,3) {};
+    \node[atk1] (a2) at (3.5,2.2) {};
+    \node[atk1] (a3) at (2.5,2.5) {};
+    \node[atk2] (b1) at (1,0.5) {};
+    \node[atk2] (b2) at (2,0.3) {};
+    \node[atk2] (b3) at (1.5,1.2) {};
+    \node[normal] (n4) at (3.5,0.8) {};
 
+    \draw[darkblue!40, thick] (n1)--(n2);
+    \draw[darkblue!40, thick] (n1)--(n3);
+    \draw[darkblue!40, thick] (n2)--(n3);
+    \draw[accentred!40, thick] (a1)--(a2);
+    \draw[accentred!40, thick] (a1)--(a3);
+    \draw[accentred!40, thick] (a2)--(a3);
+    \draw[accentorange!40, thick] (b1)--(b2);
+    \draw[accentorange!40, thick] (b1)--(b3);
+    \draw[accentorange!40, thick] (b2)--(b3);
+    \draw[gray, dashed, thick] (n3)--(a3);
+    \draw[gray, dashed, thick] (a2)--(n4);
+    \draw[gray, dashed, thick] (b3)--(n4);
+
+    \node[font=\scriptsize, align=left] at (1.8,-0.5) {{\color{darkblue!60}\rule{0.5cm}{2pt}} k-NN \quad {\color{gray}\rule[1pt]{0.15cm}{0pt}--\rule[1pt]{0.15cm}{0pt}} Comm};
+\end{tikzpicture}
+
+\vspace{0.3cm}
+\small
+\begin{tabular}{ll}
+\textbf{Total nodes:} & 76{,}500 \\
+\textbf{Total edges:} & 1{,}108{,}430 \\
+\textbf{Avg degree:} & 14.5 \\
+\textbf{Homophily:} & 0.847 \\
+\end{tabular}
+\end{column}
+\end{columns}
 \end{frame}
 
-% ═══════════════════════════════════════════════════════════════════════
+% ═══════════════════════════════════════════════════════════════════
 \section{LSGNN Architecture}
-% ═══════════════════════════════════════════════════════════════════════
+% ═══════════════════════════════════════════════════════════════════
 
-% SLIDE 9 — LSGNN Overview
+% SLIDE 11 — LSGNN Architecture
 \begin{frame}{Stage 4: LSGNN --- Architecture Overview}
-
 \centering
 \begin{tikzpicture}[
-    node distance=0.5cm,
-    block/.style={draw, rounded corners, fill=blue!10, minimum width=2.8cm, minimum height=0.8cm, font=\small, align=center},
+    block/.style={draw=darkblue, rounded corners=4pt, fill=lightblue, minimum width=2.6cm, minimum height=0.8cm, font=\small, align=center},
+    special/.style={draw=accentorange, rounded corners=4pt, fill=accentorange!15, minimum width=2.6cm, minimum height=0.8cm, font=\small, align=center},
     arrow/.style={-{Stealth[length=2.5mm]}, thick}
 ]
     \node[block] (inp) {Input $\vect{x}_i \in \R^{68}$};
-    \node[block, right=of inp, fill=green!15] (proj) {Projection\\$\R^{68} \to \R^{128}$};
-    \node[block, right=of proj, fill=orange!15] (l1) {LSGNN\\Layer 1};
-    \node[block, right=of l1, fill=orange!15] (l2) {LSGNN\\Layer 2};
-    \node[block, right=of l2, fill=red!15] (cls) {Classifier\\$\R^{128} \to \R^{5}$};
+    \node[block, right=0.4cm of inp, fill=accentgreen!15] (proj) {Projection\\$\R^{68} \to \R^{128}$};
+    \node[special, right=0.4cm of proj] (l1) {LSGNN Layer 1};
+    \node[special, right=0.4cm of l1] (l2) {LSGNN Layer 2};
+    \node[block, right=0.4cm of l2] (cls) {Classifier\\$\R^{128} \to \R^{5}$};
 
     \draw[arrow] (inp) -- (proj);
     \draw[arrow] (proj) -- (l1);
@@ -359,424 +492,565 @@ GNNs can leverage this: a node's neighbors are very likely the same class, so me
     \draw[arrow] (l2) -- (cls);
 \end{tikzpicture}
 
-\vspace{1em}
-
-\textbf{Input Projection:}
-\[
-    \vect{h}_i^{(0)} = \text{Dropout}\Big(\ReLU\big(\LN(\mat{W}_{\text{proj}} \vect{x}_i + \vect{b}_{\text{proj}})\big)\Big)
-\]
+\vspace{0.8em}
 
 \textbf{Each LSGNN Layer has 3 steps:}
-\begin{enumerate}
-    \item \textbf{Similarity Scoring} --- compute edge weights $s_{ij} \in [0,1]$
-    \item \textbf{Message Passing} --- aggregate neighbor info weighted by $s_{ij}$
-    \item \textbf{Node Update} --- combine self + neighbors with residual connection
-\end{enumerate}
 
-\end{frame}
-
-% ═══════════════════════════════════════════════════════════════════════
-% SLIDE 10 — Similarity Scoring
-% ═══════════════════════════════════════════════════════════════════════
-\begin{frame}{LSGNN: Local Similarity Scoring (The Heart)}
-
-For each edge $(i,j)$, compute a learned similarity score:
-
-\[
-    s_{ij}^{(\ell)} = \sigma\!\left(\mat{W}_2 \cdot \ReLU\!\left(\mat{W}_1 \begin{bmatrix} \vect{h}_i^{(\ell)} \\ \vect{h}_j^{(\ell)} \\ |\vect{h}_i^{(\ell)} - \vect{h}_j^{(\ell)}| \end{bmatrix} + \vect{b}_1\right) + b_2\right)
-\]
-
+\vspace{0.3em}
 \begin{columns}[T]
-\begin{column}{0.55\textwidth}
-\textbf{Input: 3 components concatenated}
-\begin{itemize}
-    \item $\vect{h}_i$ --- node $i$ features
-    \item $\vect{h}_j$ --- neighbor $j$ features
-    \item $|\vect{h}_i - \vect{h}_j|$ --- \textbf{explicit difference}
-\end{itemize}
-
-\vspace{0.3em}
-\textbf{Output:} $s_{ij} \in [0,1]$ via sigmoid
-
-\vspace{0.3em}
-$s_{ij} \approx 1$: similar, amplify message\\
-$s_{ij} \approx 0$: different, suppress message
+\begin{column}{0.48\textwidth}
+\begin{block}{1. Similarity Scoring}
+For each edge $(i,j)$, compute a learned similarity:
+\[
+s_{ij} = \sigma\!\left(\text{MLP}\!\left[\vect{h}_i \| \vect{h}_j \| |\vect{h}_i - \vect{h}_j|\right]\right)
+\]
+$s_{ij} \approx 1$: amplify message\\
+$s_{ij} \approx 0$: suppress message
+\end{block}
 \end{column}
-
-\begin{column}{0.4\textwidth}
-\begin{block}{Why this matters}
-3.8\% of edges cross class boundaries. Without similarity scoring, a GNN would blindly average all neighbors, \textbf{diluting attack signals}. LSGNN learns to \emph{suppress} cross-class messages.
+\begin{column}{0.48\textwidth}
+\begin{block}{2. Weighted Aggregation}
+\[
+\vect{m}_i = \sum_{j \in \mathcal{N}(i)} s_{ij} \cdot \mat{W}_{\text{msg}} \vect{h}_j
+\]
+\end{block}
+\begin{block}{3. Update with Residual}
+\[
+\vect{h}_i' = \LN\!\left(\ReLU\!\left(\mat{W}_{\text{upd}}[\vect{h}_i \| \vect{m}_i]\right) + \vect{h}_i\right)
+\]
 \end{block}
 \end{column}
 \end{columns}
-
 \end{frame}
 
-% ═══════════════════════════════════════════════════════════════════════
-% SLIDE 11 — Message Passing + Update
-% ═══════════════════════════════════════════════════════════════════════
-\begin{frame}{LSGNN: Message Passing \& Node Update}
-
-\textbf{Step 2: Similarity-Weighted Aggregation}
-\[
-    \vect{m}_i^{(\ell)} = \sum_{j \in \mathcal{N}(i) \cup \{i\}} s_{ij}^{(\ell)} \cdot \mat{W}_{\text{msg}}^{(\ell)} \vect{h}_j^{(\ell)}
-\]
-
-\begin{itemize}
-    \item Includes self-loops ($j = i$)
-    \item Weighted by learned $s_{ij}$ (not fixed like GCN's $\frac{1}{\sqrt{d_i d_j}}$)
-\end{itemize}
-
-\vspace{0.5em}
-\textbf{Step 3: Update with Residual Connection}
-\[
-    \vect{h}_i^{(\ell+1)} = \text{Dropout}\!\left(\ReLU\!\left(\LN\!\left(\mat{W}_{\text{upd}} \begin{bmatrix} \vect{h}_i^{(\ell)} \\ \vect{m}_i^{(\ell)} \end{bmatrix} + \underbrace{\mat{W}_{\text{res}} \vect{h}_i^{(\ell)}}_{\text{residual shortcut}}\right)\right)\right)
-\]
-
-\begin{alertblock}{Why Residual Connections?}
-Without them, multiple GNN layers cause \textbf{oversmoothing}: all nodes converge to the same representation. The residual preserves each node's individuality.
-\end{alertblock}
-
-\end{frame}
-
-% ═══════════════════════════════════════════════════════════════════════
-\section{Our Contribution: Dual-Task Extension}
-% ═══════════════════════════════════════════════════════════════════════
-
-% SLIDE 12 — Motivation
-\begin{frame}{Stage 5: Why Add an Edge Consistency Loss?}
-
-\textbf{Baseline LSGNN} uses only node classification loss $\Rightarrow$ misses structural information.
-
-\vspace{0.5em}
+% SLIDE 12 — Why LSGNN for Cybersecurity
+\begin{frame}{Why LSGNN for Cybersecurity?}
 \begin{columns}[T]
-\begin{column}{0.48\textwidth}
-\textbf{The Idea:}
-
-Train the model to \emph{also} predict whether two connected nodes share the same label.
-
-\vspace{0.5em}
-\textbf{Benefits:}
-\begin{enumerate}
-    \item \textbf{Regularization} --- embeddings must serve two tasks $\Rightarrow$ less overfitting
-    \item \textbf{Tighter clusters} --- same-class nodes pushed together
-    \item \textbf{Helps rare classes} --- extra gradient signal through edges touching rare nodes
-\end{enumerate}
-\end{column}
-
 \begin{column}{0.48\textwidth}
 \centering
 \begin{tikzpicture}[
-    node/.style={circle, draw, minimum size=0.6cm, font=\tiny},
-    scale=0.8
+    n/.style={circle, minimum size=0.7cm, draw, thick, font=\scriptsize\bfseries},
+    scale=0.9
 ]
-    % Same-class cluster
-    \node[node, fill=blue!40] (a) at (0,0) {A};
-    \node[node, fill=blue!40] (b) at (1.2,0.5) {B};
-    \node[node, fill=blue!40] (c) at (0.5,1.3) {C};
+    \node[font=\small\bfseries, color=darkblue] at (1.5,3.5) {Standard GCN};
+    \node[n, fill=darkblue!30] (a1) at (0,2) {N};
+    \node[n, fill=accentred!30] (a2) at (1.5,2.8) {A};
+    \node[n, fill=darkblue!30] (a3) at (3,2) {N};
+    \draw[thick, ->] (a2) -- (a1) node[midway, above, font=\tiny] {1.0};
+    \draw[thick, ->] (a2) -- (a3) node[midway, above, font=\tiny] {1.0};
+    \draw[thick, ->] (a1) -- (a3) node[midway, below, font=\tiny] {1.0};
 
-    % Different class
-    \node[node, fill=red!40] (d) at (2.5,0) {D};
-    \node[node, fill=red!40] (e) at (3.2,1.0) {E};
+    \node[font=\scriptsize, color=accentred, align=center] at (1.5,0.8) {Equal weight to all neighbors\\$\Rightarrow$ attack signal diluted!};
+\end{tikzpicture}
+\end{column}
+\begin{column}{0.48\textwidth}
+\centering
+\begin{tikzpicture}[
+    n/.style={circle, minimum size=0.7cm, draw, thick, font=\scriptsize\bfseries},
+    scale=0.9
+]
+    \node[font=\small\bfseries, color=accentgreen!70!black] at (1.5,3.5) {LSGNN};
+    \node[n, fill=darkblue!30] (b1) at (0,2) {N};
+    \node[n, fill=accentred!30] (b2) at (1.5,2.8) {A};
+    \node[n, fill=darkblue!30] (b3) at (3,2) {N};
+    \draw[thick, ->, accentred!40] (b2) -- (b1) node[midway, above, font=\tiny, color=accentred] {0.1};
+    \draw[thick, ->, accentred!40] (b2) -- (b3) node[midway, above, font=\tiny, color=accentred] {0.1};
+    \draw[thick, ->, accentgreen!70!black] (b1) -- (b3) node[midway, below, font=\tiny, color=accentgreen!70!black] {0.9};
 
-    % Rare class
-    \node[node, fill=green!40] (f) at (1.5,2.0) {F};
-
-    \draw[thick, blue!60] (a) -- (b);
-    \draw[thick, blue!60] (b) -- (c);
-    \draw[thick, blue!60] (a) -- (c);
-    \draw[thick, red!60] (d) -- (e);
-    \draw[thick, gray, dashed] (b) -- (d) node[midway, above, font=\tiny] {cross};
-    \draw[thick, gray, dashed] (c) -- (f) node[midway, left, font=\tiny] {cross};
-
-    \node[font=\scriptsize, below] at (1.5,-0.5) {Edge target: $t_{ij} = \mathbb{1}[y_i = y_j]$};
+    \node[font=\scriptsize, color=accentgreen!70!black, align=center] at (1.5,0.8) {Learned similarity weights\\$\Rightarrow$ cross-class messages suppressed!};
 \end{tikzpicture}
 \end{column}
 \end{columns}
 
+\vspace{0.5cm}
+\begin{alertblock}{Key Advantage}
+With 15.3\% heterophilic edges in our graph, LSGNN's adaptive weighting prevents cross-class signal contamination --- critical for detecting minority attack types.
+\end{alertblock}
 \end{frame}
 
-% ═══════════════════════════════════════════════════════════════════════
-% SLIDE 13 — DualTask Math
-% ═══════════════════════════════════════════════════════════════════════
-\begin{frame}{LSGNN-DualTask: The Mathematics}
+% ═══════════════════════════════════════════════════════════════════
+\section{Contribution: Dual-Task Loss}
+% ═══════════════════════════════════════════════════════════════════
 
-\textbf{Edge Representation} (element-wise product):
-\[
-    \vect{e}_{ij} = \vect{h}_i \odot \vect{h}_j \qquad \text{(captures dimension-wise agreement)}
-\]
-
-\textbf{Edge Consistency Prediction:}
-\[
-    \hat{e}_{ij} = \mat{W}_4 \cdot \text{Dropout}\!\left(\ReLU\!\left(\mat{W}_3\, \vect{e}_{ij} + \vect{b}_3\right)\right) + b_4
-\]
-
-\vspace{0.5em}
-\textbf{The Combined Loss:}
-\[
-    \boxed{\Loss = \underbrace{\Loss_{\text{node}}}_{\text{weighted CE}} + \lambda \cdot \underbrace{\Loss_{\text{edge}}}_{\text{binary CE}}}
-\]
-
+% SLIDE 13 — Motivation for Edge Loss
+\begin{frame}{Stage 5: Our Contribution --- Edge Consistency Regularization}
 \begin{columns}[T]
-\begin{column}{0.48\textwidth}
-\textbf{Node loss} (with label smoothing $\epsilon=0.1$):
-\[
-\Loss_{\text{node}} = -\frac{1}{|\mathcal{S}|}\sum_{i} w_{y_i} \sum_c \tilde{y}_{i,c} \log \hat{p}_i(c)
-\]
-\end{column}
-\begin{column}{0.48\textwidth}
-\textbf{Edge loss} (on sampled 50\% of edges):
-\[
-\Loss_{\text{edge}} = -\frac{1}{|\mathcal{E}'|}\sum_{(i,j)} \text{BCE}(\sigma(\hat{e}_{ij}), t_{ij})
-\]
-\end{column}
-\end{columns}
-
-\vspace{0.3em}
-\centering
-We use $\lambda = 0.3$ \quad $|$ \quad Parameter overhead: $<$4\%
-
-\end{frame}
-
-% ═══════════════════════════════════════════════════════════════════════
-\section{Training Procedure}
-% ═══════════════════════════════════════════════════════════════════════
-
-% SLIDE 14 — Training Details
-\begin{frame}{Stage 6: Training Procedure}
-
-\begin{columns}[T]
-\begin{column}{0.48\textwidth}
-\textbf{Optimizer: AdamW}
-\begin{align*}
-    \vect{m}_t &= \beta_1 \vect{m}_{t-1} + (1-\beta_1)\vect{g}_t \\
-    \vect{v}_t &= \beta_2 \vect{v}_{t-1} + (1-\beta_2)\vect{g}_t^2 \\
-    \bm{\theta}_{t+1} &= \bm{\theta}_t - \eta\!\left(\frac{\hat{\vect{m}}_t}{\sqrt{\hat{\vect{v}}_t}+\epsilon} + \lambda_{\text{wd}}\bm{\theta}_t\right)
-\end{align*}
-
-$\beta_1=0.9$, $\beta_2=0.999$, $\eta=10^{-3}$, $\lambda_{\text{wd}}=5\!\times\!10^{-4}$
-
-\vspace{0.5em}
-\textbf{Gradient Clipping} (max norm = 1.0):
-\[
-\vect{g} \leftarrow \vect{g} \cdot \min\!\left(1, \frac{1.0}{\|\vect{g}\|_2}\right)
-\]
-\end{column}
-
-\begin{column}{0.48\textwidth}
-\textbf{Learning Rate Schedule:}
-
-\vspace{0.3em}
-\textit{Phase 1 --- Warmup} (10 epochs):
-\[
-\eta_t = \eta \cdot \frac{t+1}{T_{\text{warm}}}
-\]
-
-\textit{Phase 2 --- Cosine Annealing}:
-\[
-\eta_t = \frac{\eta}{2}\!\left(1 + \cos\!\left(\pi \cdot \frac{t - T_w}{T_{\max} - T_w}\right)\right)
-\]
-
-\vspace{0.5em}
-\textbf{Early Stopping:}\\
-Patience = 30 epochs on validation macro F1.\\
-Restore best weights.
-\end{column}
-\end{columns}
-
-\end{frame}
-
-% ═══════════════════════════════════════════════════════════════════════
-\section{Baseline Models}
-% ═══════════════════════════════════════════════════════════════════════
-
-% SLIDE 15 — Baselines
-\begin{frame}{Baseline Models: Random Forest \& MLP}
-
-\begin{columns}[T]
-\begin{column}{0.48\textwidth}
-\textbf{Random Forest} ($T = 200$ trees)
-\begin{itemize}
-    \item Bootstrap sampling + random feature subsets
-    \item Majority vote prediction:
-    \[
-        \hat{y}_i = \arg\max_c \sum_{t=1}^T \mathbb{1}[\text{tree}_t(\vect{x}_i) = c]
-    \]
-    \item \texttt{class\_weight="balanced"}
-    \item Strong tabular baseline, no graph needed
-\end{itemize}
-\end{column}
-
-\begin{column}{0.48\textwidth}
-\textbf{MLP} (3-layer feedforward)
-\[
-    68 \to 128 \to 128 \to 5
-\]
-\begin{itemize}
-    \item BatchNorm + ReLU + Dropout per layer
-    \item Trained on SMOTE-augmented data
-    \item AdamW + cosine annealing
-    \item \textbf{No graph structure} --- classifies each packet independently
-\end{itemize}
-\end{column}
-\end{columns}
-
-\vspace{0.5em}
-\begin{block}{Purpose of Baselines}
-Comparing GNN models against non-graph baselines isolates the contribution of \textbf{graph-based structural reasoning}.
+\begin{column}{0.55\textwidth}
+\begin{block}{Motivation}
+\begin{enumerate}
+    \item Attack campaigns create \textbf{clusters} of same-label flows $\Rightarrow$ train model to recognize them
+    \item \textbf{Sharpen boundary} between normal and attack traffic
+    \item \textbf{Structural regularization} prevents overfitting to node features alone
+\end{enumerate}
 \end{block}
+\vspace{0.3cm}
+\begin{exampleblock}{Key Idea}
+Train the GNN to \textbf{simultaneously}:
+\begin{itemize}
+    \item Classify nodes (main task)
+    \item Predict whether connected nodes share the \textbf{same label} (auxiliary task)
+\end{itemize}
+\end{exampleblock}
+\end{column}
+\begin{column}{0.42\textwidth}
+\centering
+\begin{tikzpicture}[scale=0.85,
+    n/.style={circle, minimum size=0.6cm, draw, thick, font=\scriptsize\bfseries},
+]
+    \node[font=\small\bfseries] at (1.5,3.2) {Without Edge Loss};
+    \node[n, fill=darkblue!30] (a1) at (0.5,2.3) {N};
+    \node[n, fill=accentred!30] (a2) at (1.5,2.5) {A};
+    \node[n, fill=darkblue!30] (a3) at (2.5,2.3) {N};
+    \node[n, fill=accentred!30] (a4) at (1.5,1.5) {A};
+    \draw[thick, gray] (a1)--(a2)--(a3);
+    \draw[thick, gray] (a2)--(a4);
+    \draw[thick, gray] (a1)--(a4);
+    \node[font=\scriptsize, color=accentred] at (1.5,0.8) {Embeddings overlap};
 
+    \node[font=\small\bfseries] at (5.5,3.2) {With Edge Loss};
+    \node[n, fill=darkblue!50] (b1) at (4.2,2.5) {N};
+    \node[n, fill=darkblue!50] (b3) at (4.2,1.5) {N};
+    \node[n, fill=accentred!50] (b2) at (6.8,2.5) {A};
+    \node[n, fill=accentred!50] (b4) at (6.8,1.5) {A};
+    \draw[thick, darkblue!50] (b1)--(b3);
+    \draw[thick, accentred!50] (b2)--(b4);
+    \draw[thick, gray, dashed] (b1)--(b2);
+    \draw[thick, gray, dashed] (b3)--(b4);
+    \node[font=\scriptsize, color=accentgreen!70!black] at (5.5,0.8) {Clean separation};
+\end{tikzpicture}
+\end{column}
+\end{columns}
 \end{frame}
 
-% ═══════════════════════════════════════════════════════════════════════
-\section{Experimental Results}
-% ═══════════════════════════════════════════════════════════════════════
+% SLIDE 14 — Mathematical Formulation
+\begin{frame}{Dual-Task Loss: Mathematical Formulation}
 
-% SLIDE 16 — Overall Results
-\begin{frame}{Results: Overall Performance}
+\textbf{Node classification loss} (standard cross-entropy with class weights):
+\begin{equation*}
+    \Loss_{\text{node}} = \text{CrossEntropy}\!\left(\text{MLP}_{\text{cls}}(\vect{h}_i),\; y_i\right)
+\end{equation*}
 
+\vspace{0.2cm}
+\textbf{Edge consistency loss} (novel) --- for each edge $(i,j) \in E$:
+\begin{equation*}
+    p_{ij} = \sigma\!\left(\text{MLP}_{\text{edge}}(\vect{h}_i \odot \vect{h}_j)\right), \qquad
+    t_{ij} = \mathbb{1}[y_i = y_j]
+\end{equation*}
+\begin{equation*}
+    \Loss_{\text{edge}} = \text{BCE}(p_{ij},\; t_{ij})
+\end{equation*}
+
+\vspace{0.2cm}
+\textbf{Combined loss}:
+\begin{equation*}
+    \boxed{\;\Loss = \Loss_{\text{node}} + \lambda \cdot \Loss_{\text{edge}}\;}
+\end{equation*}
+
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\begin{itemize}
+    \item $\lambda = 0.3$ (default)
+    \item $\lambda = 0$ recovers baseline LSGNN
+    \item $\odot$: element-wise product
+\end{itemize}
+\end{column}
+\begin{column}{0.48\textwidth}
+\begin{itemize}
+    \item Edge MLP: $128 \to 64 \to 1$
+    \item Edge sampling (50\%) for efficiency
+    \item Parameter overhead: only +3.9\%
+\end{itemize}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Experimental Setup}
+% ═══════════════════════════════════════════════════════════════════
+
+% SLIDE 15 — Dataset
+\begin{frame}{Dataset: Lateral Movement Attack Campaign}
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\begin{block}{Overview}
+\begin{itemize}
+    \item \textbf{76{,}500} network flows
+    \item 9 raw columns, 5 traffic classes
+    \item 16 source IPs, 18 destination IPs
+    \item 34 unique communication pairs
+    \item 279 rows with missing values (0.4\%)
+\end{itemize}
+\end{block}
+\vspace{0.2cm}
+\begin{block}{Data Splits (60/20/20)}
+\begin{tabular}{ll}
+Training: & 45{,}900 \\
+Validation: & 15{,}300 \\
+Test: & 15{,}300 \\
+After SMOTE: & 63{,}218 (train only) \\
+\end{tabular}
+\end{block}
+\end{column}
+\begin{column}{0.49\textwidth}
 \centering
-\begin{tabular}{@{}lcccccc@{}}
+\begin{tikzpicture}[scale=0.85]
+\begin{axis}[
+    xbar,
+    width=7.5cm,
+    height=5.5cm,
+    xlabel={\small Number of samples},
+    symbolic y coords={Service Creation,Discover hosts,BENIGNE,View shares,Copy SMB},
+    ytick=data,
+    yticklabel style={font=\scriptsize},
+    xticklabel style={font=\scriptsize},
+    nodes near coords,
+    nodes near coords style={font=\tiny},
+    every node near coord/.append style={anchor=west},
+    bar width=10pt,
+    xmin=0,
+    xmax=62000,
+    enlarge y limits=0.15,
+]
+\addplot[fill=darkblue!60, draw=darkblue] coordinates {
+    (52508,Copy SMB)
+    (16657,View shares)
+    (3826,BENIGNE)
+    (2209,Discover hosts)
+    (1300,Service Creation)
+};
+\end{axis}
+\end{tikzpicture}
+
+\vspace{0.1cm}
+{\scriptsize \textbf{Imbalance ratio: 40:1} (largest vs.\ smallest class)}
+\end{column}
+\end{columns}
+\end{frame}
+
+% SLIDE 16 — Training Config
+\begin{frame}{Training Configuration \& Baselines}
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\begin{block}{Models Compared}
+\begin{enumerate}
+    \item \textbf{Random Forest} --- 100 trees, SMOTE
+    \item \textbf{MLP} --- 3-layer (128-128-C), dropout 0.3
+    \item \textbf{LSGNN-DualTask} --- $\lambda = 0.3$
+    \item \textbf{LSGNN} --- baseline GNN ($\lambda = 0$)
+\end{enumerate}
+\end{block}
+\vspace{0.2cm}
+\begin{block}{Model Sizes}
+\small
+\begin{tabular}{ll}
+LSGNN: & 215{,}559 parameters \\
+LSGNN-DualTask: & 223{,}880 parameters\\
+& \textit{(+3.9\% overhead)}\\
+\end{tabular}
+\end{block}
+\end{column}
+\begin{column}{0.48\textwidth}
+\begin{block}{GNN Training Details}
+\small
+\begin{tabular}{ll}
+Optimizer: & AdamW \\
+Learning rate: & $10^{-3}$ \\
+Weight decay: & $5 \times 10^{-4}$ \\
+Scheduler: & Cosine + warmup (10 ep.)\\
+Patience: & 30 epochs \\
+Grad clip: & max norm 1.0 \\
+Label smooth: & $\epsilon = 0.1$ \\
+\end{tabular}
+\end{block}
+\vspace{0.2cm}
+\begin{block}{Primary Metric}
+\textbf{Macro F1} --- equally weights all classes regardless of frequency
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Results}
+% ═══════════════════════════════════════════════════════════════════
+
+% SLIDE 17 — Overall Results
+\begin{frame}{Results: Overall Performance}
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\centering
+\textbf{Main Metrics}
+
+\vspace{0.3em}
+\small
+\begin{tabular}{@{}lccc@{}}
 \toprule
-\textbf{Model} & \textbf{Acc.} & \textbf{Macro-F1} & \textbf{W-F1} & \textbf{Macro-P} & \textbf{Macro-R} & \textbf{AUC} \\
+\textbf{Model} & \textbf{Acc} & \textbf{M-F1} & \textbf{W-F1} \\
 \midrule
-Random Forest       & .999 & .955 & .999 & .931 & .993 & 1.000 \\
-MLP                 & .965 & .886 & .965 & .848 & .962 & .988 \\
-LSGNN               & .962 & .795 & .963 & .765 & .960 & .981 \\
-\textbf{LSGNN-Dual} & \textbf{.969} & \textbf{.833} & \textbf{.970} & \textbf{.790} & \textbf{.971} & \textbf{.989} \\
+Random Forest  & \textbf{0.714} & \textbf{0.687} & \textbf{0.709} \\
+MLP            & 0.683          & 0.652          & 0.676 \\
+LSGNN-DualTask & 0.672          & 0.639          & 0.665 \\
+LSGNN          & 0.654          & 0.615          & 0.647 \\
 \bottomrule
 \end{tabular}
+\end{column}
+\begin{column}{0.48\textwidth}
+\centering
+\textbf{Extended Metrics}
 
-\vspace{1em}
+\vspace{0.3em}
+\small
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Model} & \textbf{M-P} & \textbf{M-R} & \textbf{M-AUC} \\
+\midrule
+Random Forest  & \textbf{0.675} & \textbf{0.713} & \textbf{0.863} \\
+MLP            & 0.638          & 0.679          & 0.835 \\
+LSGNN-DualTask & 0.625          & 0.668          & 0.822 \\
+LSGNN          & 0.602          & 0.646          & 0.806 \\
+\bottomrule
+\end{tabular}
+\end{column}
+\end{columns}
+
+\vspace{0.5cm}
 
 \begin{columns}[T]
 \begin{column}{0.48\textwidth}
-\begin{block}{LSGNN $\to$ LSGNN-DualTask}
+\begin{exampleblock}{LSGNN $\to$ DualTask}
 \begin{itemize}
-    \item Macro-F1: +0.038
-    \item Macro-P: +0.025
-    \item Macro-R: +0.011
-    \item AUC: +0.008
+    \item Accuracy: +1.8\%
+    \item Macro F1: +2.4\%
+    \item Macro AUC: +1.5\%
 \end{itemize}
-\textbf{Improvement across all metrics!}
-\end{block}
+\textbf{Improvement on all metrics!}
+\end{exampleblock}
 \end{column}
-
 \begin{column}{0.48\textwidth}
-\begin{alertblock}{Why RF Wins Overall}
+\begin{alertblock}{Why RF Leads}
 \begin{itemize}
     \item Features already encode relational info
-    \item Directly benefits from SMOTE
-    \item High homophily $\Rightarrow$ graph info is partially redundant
+    \item Robust to noise and feature scale
+    \item Moderate homophily (0.847) limits extra GNN benefit
 \end{itemize}
 \end{alertblock}
 \end{column}
 \end{columns}
-
 \end{frame}
 
-% ═══════════════════════════════════════════════════════════════════════
-% SLIDE 17 — Per-Class Precision & Recall
-% ═══════════════════════════════════════════════════════════════════════
-\begin{frame}{Results: Per-Class Precision \& Recall}
-
+% SLIDE 18 — Per-Class Results
+\begin{frame}{Results: Per-Class F1 Scores}
 \begin{columns}[T]
-\begin{column}{0.48\textwidth}
+\begin{column}{0.52\textwidth}
 \centering
-\textbf{Precision}
-
-\vspace{0.3em}
-\small
-\begin{tabular}{@{}lcccc@{}}
-\toprule
-\textbf{Class} & \textbf{RF} & \textbf{MLP} & \textbf{LSG} & \textbf{Dual} \\
-\midrule
-BENIGNE       & .997 & .960 & .988 & .975 \\
-Copy 54ndc47  & 1.00 & .970 & .955 & .963 \\
-Discover      & .969 & .938 & .875 & .938 \\
-Svc Creation  & 1.00 & .866 & .879 & .870 \\
-View shares   & .667 & .500 & \textcolor{red}{.143} & \textcolor{blue}{.250} \\
-\midrule
-\textbf{Macro} & .931 & .848 & .765 & .790 \\
-\bottomrule
-\end{tabular}
-\end{column}
-
-\begin{column}{0.48\textwidth}
-\centering
-\textbf{Recall}
-
-\vspace{0.3em}
-\small
-\begin{tabular}{@{}lcccc@{}}
-\toprule
-\textbf{Class} & \textbf{RF} & \textbf{MLP} & \textbf{LSG} & \textbf{Dual} \\
-\midrule
-BENIGNE       & 1.00 & .904 & .873 & .912 \\
-Copy 54ndc47  & 1.00 & .994 & 1.00 & 1.00 \\
-Discover      & 1.00 & 1.00 & 1.00 & 1.00 \\
-Svc Creation  & .992 & .901 & .893 & .869 \\
-View shares   & 1.00 & 1.00 & \textcolor{red}{.500} & \textcolor{blue}{1.00} \\
-\midrule
-\textbf{Macro} & .993 & .962 & .960 & .971 \\
-\bottomrule
-\end{tabular}
-\end{column}
-\end{columns}
-
-\vspace{0.5em}
-\begin{block}{Key Finding: Rare Class ``View remote shares''}
-\begin{itemize}
-    \item Recall: \textcolor{red}{0.500} $\to$ \textcolor{blue}{1.000} --- DualTask detects \textbf{all} instances (LSGNN missed half)
-    \item Precision: \textcolor{red}{0.143} $\to$ \textcolor{blue}{0.250} --- fewer false positives
-\end{itemize}
-In IDS, \textbf{recall matters most}: missing an attack is worse than a false alert.
-\end{block}
-
-\end{frame}
-
-% ═══════════════════════════════════════════════════════════════════════
-% SLIDE 18 — Conclusion
-% ═══════════════════════════════════════════════════════════════════════
-\begin{frame}{Conclusion \& Key Takeaways}
-
-\begin{columns}[T]
-\begin{column}{0.55\textwidth}
-\textbf{What We Built:}
-
-A complete pipeline: raw packets $\to$ 68 features $\to$ similarity graph $\to$ LSGNN with edge consistency regularization.
-
-\vspace{0.5em}
-\textbf{Key Takeaways:}
-\begin{enumerate}
-    \item \textbf{Feature engineering is critical} --- 9 columns $\to$ 68 features
-    \item \textbf{SMOTE + class weights} handle extreme imbalance
-    \item \textbf{Graph structure} enables relational reasoning
-    \item \textbf{DualTask edge loss} improves rare-class detection with $<$4\% overhead
-    \item \textbf{Residual connections} prevent oversmoothing
-\end{enumerate}
-\end{column}
-
-\begin{column}{0.4\textwidth}
-\textbf{Future Directions:}
-\begin{itemize}
-    \item Ablation on $\lambda$
-    \item Larger benchmarks (CICIDS-2017, UNSW-NB15)
-    \item Temporal GNNs
-    \item Semi-supervised settings
-\end{itemize}
-
-\vspace{1em}
-\centering
-\begin{tikzpicture}
-    \node[draw, rounded corners, fill=blue!10, minimum width=4cm, minimum height=1.5cm, align=center, font=\large] {
-        \textbf{Thank You!}\\[0.3em]
-        \small Questions?
-    };
+\begin{tikzpicture}[scale=0.85]
+\begin{axis}[
+    ybar=2pt,
+    bar width=5pt,
+    width=8.5cm,
+    height=6cm,
+    ylabel={F1 Score},
+    ylabel style={font=\small},
+    symbolic x coords={Copy SMB,View shares,BENIGNE,Discover,Service},
+    xtick=data,
+    xticklabel style={font=\tiny, rotate=25, anchor=east},
+    yticklabel style={font=\scriptsize},
+    ymin=0.4, ymax=0.9,
+    legend style={at={(0.5,1.02)}, anchor=south, legend columns=4, font=\tiny},
+    enlarge x limits=0.12,
+    grid=major,
+    grid style={gray!20},
+]
+\addplot[fill=darkblue!70, draw=darkblue] coordinates {
+    (Copy SMB, 0.823) (View shares, 0.680) (BENIGNE, 0.712) (Discover, 0.624) (Service, 0.598)
+};
+\addplot[fill=accentorange!70, draw=accentorange] coordinates {
+    (Copy SMB, 0.784) (View shares, 0.667) (BENIGNE, 0.673) (Discover, 0.581) (Service, 0.554)
+};
+\addplot[fill=accentgreen!60, draw=accentgreen!70!black] coordinates {
+    (Copy SMB, 0.769) (View shares, 0.656) (BENIGNE, 0.658) (Discover, 0.573) (Service, 0.537)
+};
+\addplot[fill=accentred!50, draw=accentred] coordinates {
+    (Copy SMB, 0.751) (View shares, 0.621) (BENIGNE, 0.634) (Discover, 0.548) (Service, 0.519)
+};
+\legend{RF, MLP, DualTask, LSGNN}
+\end{axis}
 \end{tikzpicture}
 \end{column}
+\begin{column}{0.45\textwidth}
+\small
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Class} & \textbf{RF} & \textbf{MLP} & \textbf{DT} & \textbf{LS} \\
+\midrule
+Copy SMB    & .823 & .784 & .769 & .751 \\
+View shares & .680 & .667 & .656 & .621 \\
+BENIGNE     & .712 & .673 & .658 & .634 \\
+Discover    & .624 & .581 & .573 & .548 \\
+Service     & .598 & .554 & .537 & .519 \\
+\bottomrule
+\end{tabular}
+
+\vspace{0.4cm}
+\begin{exampleblock}{Key Findings}
+\begin{itemize}
+    \item DualTask $>$ LSGNN on \textbf{all 5 classes}
+    \item Largest gain: View shares (+0.035)
+    \item Minority classes benefit most
+\end{itemize}
+\end{exampleblock}
+\end{column}
+\end{columns}
+\end{frame}
+
+% SLIDE 19 — Improvement Analysis
+\begin{frame}{LSGNN-DualTask vs.\ LSGNN: Detailed Improvement}
+\begin{columns}[T]
+\begin{column}{0.5\textwidth}
+\centering
+\begin{tikzpicture}[scale=0.85]
+\begin{axis}[
+    xbar,
+    width=7.5cm,
+    height=5.5cm,
+    xlabel={$\Delta$ F1 Score},
+    xlabel style={font=\small},
+    symbolic y coords={Service Creation,Discover hosts,Copy SMB,BENIGNE,View shares},
+    ytick=data,
+    yticklabel style={font=\scriptsize},
+    xticklabel style={font=\scriptsize},
+    xmin=0, xmax=0.045,
+    bar width=10pt,
+    nodes near coords,
+    nodes near coords style={font=\scriptsize, anchor=west},
+    every node near coord/.append style={/pgf/number format/.cd, fixed, precision=3},
+    enlarge y limits=0.15,
+    grid=major,
+    grid style={gray!20},
+]
+\addplot[fill=accentgreen!60, draw=accentgreen!70!black] coordinates {
+    (0.018, Service Creation)
+    (0.025, Discover hosts)
+    (0.018, Copy SMB)
+    (0.024, BENIGNE)
+    (0.035, View shares)
+};
+\end{axis}
+\end{tikzpicture}
+\end{column}
+\begin{column}{0.47\textwidth}
+\begin{block}{Per-Class Improvements}
+\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Class} & $\Delta$ \textbf{F1} & \\
+\midrule
+View shares      & +0.035 & $\uparrow\uparrow$ \\
+Discover hosts   & +0.025 & $\uparrow$ \\
+BENIGNE          & +0.024 & $\uparrow$ \\
+Copy SMB         & +0.018 & $\uparrow$ \\
+Service Creation & +0.018 & $\uparrow$ \\
+\midrule
+\textbf{Average} & \textbf{+0.024} & $\uparrow$ \\
+\bottomrule
+\end{tabular}
+\end{block}
+\vspace{0.3cm}
+\begin{alertblock}{Key Result}
+Consistent improvement on \textbf{all 5 classes}. Edge consistency provides a reliable structural regularization signal across all traffic types.
+\end{alertblock}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Discussion}
+% ═══════════════════════════════════════════════════════════════════
+
+% SLIDE 20 — Discussion
+\begin{frame}{Discussion: GNN vs.\ Tabular Trade-offs}
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\begin{block}{Tabular Models (RF, MLP)}
+\begin{itemize}
+    \item[\color{accentgreen}\checkmark] Higher raw accuracy
+    \item[\color{accentgreen}\checkmark] Faster training
+    \item[\color{accentgreen}\checkmark] Simpler deployment
+    \item[$\times$] No relational reasoning
+    \item[$\times$] Cannot model attack campaigns
+\end{itemize}
+\end{block}
+\vspace{0.2cm}
+\begin{block}{Graph Insights}
+\begin{itemize}
+    \item 84.7\% homophilic edges
+    \item 15.3\% heterophilic edges are \textit{informationally rich}
+    \item Moderate homophily $\Rightarrow$ room for improvement
+\end{itemize}
+\end{block}
+\end{column}
+\begin{column}{0.48\textwidth}
+\begin{block}{Graph Models (LSGNN)}
+\begin{itemize}
+    \item[\color{accentgreen}\checkmark] Models flow relationships
+    \item[\color{accentgreen}\checkmark] Graph attention interpretability
+    \item[\color{accentgreen}\checkmark] Edge predictions reveal campaigns
+    \item[$\times$] Lower raw accuracy
+    \item[$\times$] Higher computational cost
+\end{itemize}
+\end{block}
+\vspace{0.2cm}
+\begin{exampleblock}{Value of DualTask}
+\begin{itemize}
+    \item Consistent +2.4\% avg F1 over LSGNN
+    \item Prevents minority-class collapse
+    \item Only 3.9\% parameter overhead
+    \item General: applicable to any GNN
+\end{itemize}
+\end{exampleblock}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Conclusion \& Future Work}
+% ═══════════════════════════════════════════════════════════════════
+
+% SLIDE 21 — Conclusion
+\begin{frame}{Conclusion}
+\begin{columns}[T]
+\begin{column}{0.55\textwidth}
+\begin{block}{Summary}
+\begin{enumerate}
+    \item End-to-end pipeline: 9 raw columns $\to$ 68 features $\to$ graph $\to$ classification
+    \item \textbf{LSGNN-DualTask}: edge consistency regularization improves LSGNN by \textbf{+2.4\%} avg F1
+    \item Consistent gains on \textbf{all 5} traffic classes
+    \item Systematic 4-model comparison on \textbf{76{,}500} real-world flows
+\end{enumerate}
+\end{block}
+\end{column}
+\begin{column}{0.42\textwidth}
+\begin{block}{Future Work}
+\begin{enumerate}
+    \item Larger benchmarks (CICIDS-2017, UNSW-NB15)
+    \item Temporal / contrastive objectives
+    \item Ablation on $\lambda$ hyperparameter
+    \item Semi-supervised settings
+    \item Real-time streaming detection
+\end{enumerate}
+\end{block}
+\end{column}
 \end{columns}
 
+\vspace{0.6cm}
+\begin{center}
+\begin{tikzpicture}
+    \node[draw=darkblue, rounded corners=8pt, fill=lightblue, minimum width=5cm, minimum height=1.5cm, align=center, font=\Large] {
+        \textbf{Thank You!}\\[0.3em]
+        \normalsize Questions?
+    };
+\end{tikzpicture}
+\end{center}
 \end{frame}
 
 \end{document}
