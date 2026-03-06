@@ -9,3 +9,8 @@ build/
 *.csv
 results/
 checkpoints/
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
